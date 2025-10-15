@@ -5,9 +5,8 @@ on:
     types: [created]  # срабатывает только при создании нового релиза
 
 jobs:
-  upload-assets:
+  build-windows:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -23,9 +22,6 @@ jobs:
       - name: Build Windows
         run: make bld_win64
 
-      - name: Build macOS
-        run: make bld_macos
-
       - name: Upload Windows asset
         uses: actions/upload-release-asset@v1
         with:
@@ -33,6 +29,25 @@ jobs:
           asset_path: ./bin/win64/k8s-prf-win64.zip
           asset_name: k8s-prf-win64.zip
           asset_content_type: application/zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.25.3
+
+      - name: Build macOS
+        run: make bld_macos
+
+      - name: Zip macOS binary
+        run: |
+          cd ./bin/darwin
+          zip -r k8s-prf-darwin.zip k8s-prf
 
       - name: Upload macOS asset
         uses: actions/upload-release-asset@v1
