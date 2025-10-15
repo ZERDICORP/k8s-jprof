@@ -17,7 +17,7 @@ bld_win64: prebuild_win
 	$(MAKE) package_win
 
 bld_macos: prebuild_macos
-	GOOS=darwin GOARCH=amd64 go build -o ./bin/darwin/k8s-prf ./src/.
+	GOOS=darwin GOARCH=arm64 go build -o ./bin/darwin/k8s-prf ./src/.
 	$(MAKE) package_macos
 
 # Packaging
