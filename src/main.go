@@ -19,7 +19,6 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/io/pointer"
-	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -2484,7 +2483,6 @@ func main() {
 		w.Option(app.Size(unit.Dp(800), unit.Dp(790)))
 		w.Option(app.MinSize(unit.Dp(800), unit.Dp(790)))
 		w.Option(app.MaxSize(unit.Dp(800), unit.Dp(790)))
-		w.Option(app.Decorated(false))
 
 		err := run(w)
 		if err != nil {
@@ -2501,10 +2499,10 @@ func run(w *app.Window) error {
 	appInstance := NewApplication()
 	appInstance.invalidate = w.Invalidate
 
-	// Функция закрытия окна
-	closeWindow := func() {
-		w.Perform(system.ActionClose)
-	}
+	// Функция закрытия окна - больше не нужна, окно закрывается стандартными способами
+	// closeWindow := func() {
+	//     w.Perform(system.ActionClose)
+	// }
 
 	w.Invalidate()
 
@@ -2523,7 +2521,7 @@ func run(w *app.Window) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th, closeWindow)
+								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th, nil)
 							}),
 							// Центрированное сообщение об ошибке
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2548,7 +2546,7 @@ func run(w *app.Window) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th, closeWindow)
+								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th, nil)
 							}),
 							// Центрированное сообщение о загрузке
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2581,7 +2579,7 @@ func run(w *app.Window) error {
 								pointer.CursorPointer.Add(gtx.Ops)
 							}
 							
-							return appInstance.headerComponent.Layout(gtx, th, closeWindow)
+							return appInstance.headerComponent.Layout(gtx, th, nil)
 						}),
 						// Основное содержимое - используем Flexed для растягивания
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
