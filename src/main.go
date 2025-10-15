@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"gioui.org/app"
@@ -461,13 +460,8 @@ func (ns *NamespaceSelector) getNamespacesFromKubeconfig(kubeconfigPath string) 
 
 	cmd := exec.Command("kubectl", "--kubeconfig", fullPath, "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 
-	// Скрываем окно терминала на Windows
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
-	}
+	// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
+	setSysProcAttr(cmd)
 
 	// Захватываем stderr для диагностики
 	var stderr bytes.Buffer
@@ -1088,13 +1082,8 @@ func (ps *PodSelector) getPodsFromKubectl(kubeconfigPath, namespace string) []st
 
 	cmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "--kubeconfig", configPath, "-o", "jsonpath={.items[*].metadata.name}")
 	
-	// Скрываем окно терминала на Windows
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
-	}
+	// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
+	setSysProcAttr(cmd)
 
 	// Захватываем stderr для диагностики
 	var stderr bytes.Buffer
@@ -1632,12 +1621,7 @@ func downloadFile(url, filepath string) error {
 // Функция для проверки kubectl
 func checkKubectl() error {
 	cmd := exec.Command("kubectl", "version", "--client=true")
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
-	}
+	setSysProcAttr(cmd)
 	
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("kubectl not found or not working: %v", err)
@@ -2078,10 +2062,7 @@ func (a *Application) onVersionBadgeClicked() {
 	switch runtime.GOOS {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
+		setSysProcAttr(cmd)
 	case "darwin":
 		cmd = exec.Command("open", url)
 	case "linux":
@@ -2103,10 +2084,7 @@ func (a *Application) openInBrowser(filePath string) {
 	switch runtime.GOOS {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", "file:///"+strings.ReplaceAll(filePath, "\\", "/"))
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
+		setSysProcAttr(cmd)
 	case "darwin":
 		cmd = exec.Command("open", filePath)
 	case "linux":
@@ -2150,13 +2128,8 @@ func runKubectlWithConfig(kubeconfigPath string, args ...string) error {
 	cmd.Stderr = &stderr
 	cmd.Env = append(os.Environ(), "KUBECONFIG="+kubeconfigPath)
 	
-	// Скрываем окно командной строки на Windows
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
-	}
+	// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
+	setSysProcAttr(cmd)
 	
 	err := cmd.Run()
 	if err != nil && stderr.Len() > 0 {
@@ -2254,13 +2227,8 @@ func (a *Application) startRecording() {
 		var checkStderr bytes.Buffer
 		checkCmd.Stderr = &checkStderr
 		
-		// Скрываем окно командной строки на Windows
-		if runtime.GOOS == "windows" {
-			checkCmd.SysProcAttr = &syscall.SysProcAttr{
-				HideWindow:    true,
-				CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-			}
-		}
+		// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
+		setSysProcAttr(checkCmd)
 
 		if err := checkCmd.Run(); err != nil {
 			// Показываем статус копирования
@@ -2365,13 +2333,8 @@ func (a *Application) startRecording() {
 			converterPath := "./data/jfr-converter.jar"
 			convertCmd := exec.Command("java", "-jar", converterPath, "-o", selectedFormat, localTempFile)
 			
-			// Скрываем окно командной строки на Windows
-			if runtime.GOOS == "windows" {
-				convertCmd.SysProcAttr = &syscall.SysProcAttr{
-					HideWindow:    true,
-					CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-				}
-			}
+			// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
+			setSysProcAttr(convertCmd)
 			
 			// Захватываем stderr для подробной информации об ошибках
 			var stderr bytes.Buffer
