@@ -1,7 +1,10 @@
 package main
 
 import (
+	"image/color"
+
 	"gioui.org/font"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
@@ -102,6 +105,7 @@ func (vbc *VersionBadgeComponent) Layout(gtx layout.Context, th *material.Theme)
 type HeaderComponent struct {
 	titleComponent       *TitleComponent
 	versionBadgeComponent *VersionBadgeComponent
+	closeButton          widget.Clickable
 }
 
 func NewHeaderComponent(logoImage paint.ImageOp, versionBadge *widget.Clickable, version string) *HeaderComponent {
@@ -112,26 +116,69 @@ func NewHeaderComponent(logoImage paint.ImageOp, versionBadge *widget.Clickable,
 }
 
 // Layout отрисовывает полный заголовок с версией справа
-func (hc *HeaderComponent) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(16), Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+func (hc *HeaderComponent) Layout(gtx layout.Context, th *material.Theme, onClose func()) layout.Dimensions {
+	// Обработка клика по кнопке закрытия
+	for hc.closeButton.Clicked(gtx) {
+		if onClose != nil {
+			onClose()
+		}
+	}
+
+	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(16), Left: unit.Dp(20), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			// Логотип и название слева
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return hc.titleComponent.Layout(gtx, th)
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return hc.titleComponent.Layout(gtx, th)
+					}),
+					layout.Flexed(1, layout.Spacer{}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return hc.versionBadgeComponent.Layout(gtx, th)
+					}),
+				)
 			}),
-			// Пространство между логотипом/названием и версией
-			layout.Flexed(1, layout.Spacer{}.Layout),
-			// Версия async-profiler справа
+			// Кнопка закрытия справа
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return hc.versionBadgeComponent.Layout(gtx, th)
+				// pointer.CursorPointer для кнопки при hover
+				if hc.closeButton.Hovered() {
+					pointer.CursorPointer.Add(gtx.Ops)
+				}
+				return layout.Inset{Left: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					btn := material.Button(th, &hc.closeButton, "✕")
+					btn.Background = color.NRGBA{R: 220, G: 53, B: 69, A: 255}
+					btn.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+					return btn.Layout(gtx)
+				})
 			}),
 		)
 	})
 }
 
 // SimpleHeaderLayout отрисовывает простой заголовок без версии (для режимов ошибки/инициализации)
-func (hc *HeaderComponent) SimpleHeaderLayout(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(50)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return hc.titleComponent.Layout(gtx, th)
+func (hc *HeaderComponent) SimpleHeaderLayout(gtx layout.Context, th *material.Theme, onClose func()) layout.Dimensions {
+	for hc.closeButton.Clicked(gtx) {
+		if onClose != nil {
+			onClose()
+		}
+	}
+	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(50), Left: unit.Dp(20), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return hc.titleComponent.Layout(gtx, th)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// pointer.CursorPointer для кнопки при hover
+				if hc.closeButton.Hovered() {
+					pointer.CursorPointer.Add(gtx.Ops)
+				}
+				return layout.Inset{Left: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					btn := material.Button(th, &hc.closeButton, "✕")
+					btn.Background = color.NRGBA{R: 220, G: 53, B: 69, A: 255}
+					btn.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+					return btn.Layout(gtx)
+				})
+			}),
+		)
 	})
 }

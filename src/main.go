@@ -19,6 +19,7 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/io/pointer"
+	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -807,14 +808,16 @@ func (fs *FormatSelector) loadSelection() {
 }
 
 func (fs *FormatSelector) saveSelection() {
-	if fs.selectedFormat == "(none)" {
-		// Delete file if "(none)" is selected
-		os.Remove(getFormatConfigFilePath())
-		return
-	}
 	configFile := getFormatConfigFilePath()
 	os.MkdirAll(filepath.Dir(configFile), 0755)
-	os.WriteFile(configFile, []byte(fs.selectedFormat), 0644)
+	
+	// Если выбран "(нет)" (из поиска) - сохраняем как "(none)"
+	valueToSave := fs.selectedFormat
+	if valueToSave == "" {
+		valueToSave = "(none)"
+	}
+	
+	os.WriteFile(configFile, []byte(valueToSave), 0644)
 }
 
 func (fs *FormatSelector) GetSelectedFormat() string {
@@ -899,6 +902,7 @@ func (fs *FormatSelector) Layout(gtx layout.Context, th *material.Theme, app *Ap
 					paint.Fill(gtx.Ops, color.NRGBA{R: 180, G: 180, B: 180, A: 255})
 					return layout.Dimensions{Size: gtx.Constraints.Max}
 				},
+
 				func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						// White background inside
@@ -908,13 +912,19 @@ func (fs *FormatSelector) Layout(gtx layout.Context, th *material.Theme, app *Ap
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Search field
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									editor := material.Editor(th, &fs.searchEditor, "Search formats...")
-									editor.Editor.SingleLine = true
-									editor.Color = color.NRGBA{R: 40, G: 40, B: 40, A: 255}
-									editor.HintColor = color.NRGBA{R: 120, G: 120, B: 120, A: 255}
+								return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									// Фон для поля поиска на всю ширину
+									defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+									paint.Fill(gtx.Ops, color.NRGBA{R: 248, G: 248, B: 248, A: 255})
 
-									return editor.Layout(gtx)
+									return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										editor := material.Editor(th, &fs.searchEditor, "Search formats...")
+										editor.Editor.SingleLine = true
+										editor.Color = color.NRGBA{R: 40, G: 40, B: 40, A: 255}
+										editor.HintColor = color.NRGBA{R: 120, G: 120, B: 120, A: 255}
+
+										return editor.Layout(gtx)
+									})
 								})
 							}),
 							// List of formats
@@ -1382,6 +1392,22 @@ func getFormatConfigFilePath() string {
 func getConfigDir() string {
 	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, ".k8s-pfr")
+}
+
+func shortenFileName(filePath string) string {
+	fileName := filepath.Base(filePath)
+	if len(fileName) <= 13 { // 5 + 3 + 5 = 13, если меньше - показываем полностью
+		return fileName
+	}
+	
+	ext := filepath.Ext(fileName)
+	nameWithoutExt := strings.TrimSuffix(fileName, ext)
+	
+	if len(nameWithoutExt) <= 10 { // 5 + 5 = 10
+		return fileName
+	}
+	
+	return nameWithoutExt[:5] + "***" + nameWithoutExt[len(nameWithoutExt)-5:] + ext
 }
 
 func clearAllSavedData() error {
@@ -2417,10 +2443,8 @@ func (a *Application) startRecording() {
 			// Удаляем временный JFR файл
 			os.Remove(localTempFile)
 
-			a.recordingResult = fmt.Sprintf("Saved JFR and %s files to %s", selectedFormat, outputFolder)
 			a.outputPath = outputFolder // Сохраняем путь для кликабельности
 		} else {
-			a.recordingResult = fmt.Sprintf("Saved to %s", outputPath)
 			a.outputPath = filepath.Dir(outputPath) // Сохраняем папку с файлом
 		}
 
@@ -2437,7 +2461,7 @@ func (a *Application) startRecording() {
 			a.recordingResult = fmt.Sprintf("Saved JFR and %s files to %s", selectedFormat, outputFolder)
 			a.outputPath = outputFolder // Сохраняем путь для кликабельности
 		} else {
-			a.recordingResult = fmt.Sprintf("Saved to %s", outputPath)
+			a.recordingResult = fmt.Sprintf("Saved JFR to %s", outputFolder)
 			a.outputPath = filepath.Dir(outputPath) // Сохраняем папку с файлом
 		}
 		a.isRecording = false
@@ -2455,11 +2479,12 @@ func main() {
 	go func() {
 		w := new(app.Window)
 		w.Option(app.Title("k8s-pfr.beta"))
-		w.Option(app.Size(unit.Dp(800), unit.Dp(750)))
-		w.Option(app.Decorated(true))
-		// Запрещаем изменение размера
-		w.Option(app.MinSize(unit.Dp(800), unit.Dp(750)))
-		w.Option(app.MaxSize(unit.Dp(800), unit.Dp(750)))
+		w.Option(app.NavigationColor(color.NRGBA {R: 46, G: 108, B: 230, A: 255}))
+		w.Option(app.StatusColor(color.NRGBA {R: 46, G: 108, B: 230, A: 255}))
+		w.Option(app.Size(unit.Dp(800), unit.Dp(790)))
+		w.Option(app.MinSize(unit.Dp(800), unit.Dp(790)))
+		w.Option(app.MaxSize(unit.Dp(800), unit.Dp(790)))
+		w.Option(app.Decorated(false))
 
 		err := run(w)
 		if err != nil {
@@ -2475,6 +2500,11 @@ func run(w *app.Window) error {
 
 	appInstance := NewApplication()
 	appInstance.invalidate = w.Invalidate
+
+	// Функция закрытия окна
+	closeWindow := func() {
+		w.Perform(system.ActionClose)
+	}
 
 	w.Invalidate()
 
@@ -2493,7 +2523,7 @@ func run(w *app.Window) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th)
+								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th, closeWindow)
 							}),
 							// Центрированное сообщение об ошибке
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2518,7 +2548,7 @@ func run(w *app.Window) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th)
+								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th, closeWindow)
 							}),
 							// Центрированное сообщение о загрузке
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2551,7 +2581,7 @@ func run(w *app.Window) error {
 								pointer.CursorPointer.Add(gtx.Ops)
 							}
 							
-							return appInstance.headerComponent.Layout(gtx, th)
+							return appInstance.headerComponent.Layout(gtx, th, closeWindow)
 						}),
 						// Основное содержимое - используем Flexed для растягивания
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
