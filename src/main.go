@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"image/png"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"gioui.org/app"
 	"gioui.org/font"
@@ -22,52 +24,20 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 )
 
-// Windows API for folder selection
-var (
-	shell32                  = syscall.NewLazyDLL("shell32.dll")
-	procSHBrowseForFolder    = shell32.NewProc("SHBrowseForFolderW")
-	procSHGetPathFromIDListW = shell32.NewProc("SHGetPathFromIDListW")
-)
-
-type BROWSEINFO struct {
-	hwndOwner      uintptr
-	pidlRoot       uintptr
-	pszDisplayName *uint16
-	lpszTitle      *uint16
-	ulFlags        uint32
-	lpfn           uintptr
-	lParam         uintptr
-	iImage         int32
-}
-
 // Function to open folder selection dialog
 func chooseFolderDialog() (string, error) {
-	displayName := make([]uint16, 260)
-	title, _ := syscall.UTF16PtrFromString("Select folder to save JFR files")
-
-	bi := BROWSEINFO{
-		pszDisplayName: &displayName[0],
-		lpszTitle:      title,
-		ulFlags:        0x0001, // BIF_RETURNONLYFSDIRS
-	}
-
-	ret, _, _ := procSHBrowseForFolder.Call(uintptr(unsafe.Pointer(&bi)))
-	if ret == 0 {
+	// Используем нативный модальный диалог
+	folder, ok := openModalFolderDialog()
+	if !ok {
 		return "", fmt.Errorf("user cancelled selection")
 	}
-
-	pathBuffer := make([]uint16, 260)
-	ret2, _, _ := procSHGetPathFromIDListW.Call(ret, uintptr(unsafe.Pointer(&pathBuffer[0])))
-	if ret2 == 0 {
-		return "", fmt.Errorf("failed to get path")
-	}
-
-	return syscall.UTF16ToString(pathBuffer), nil
+	return folder, nil
 }
 
 type KubeconfigSelector struct {
@@ -180,7 +150,7 @@ func (ks *KubeconfigSelector) saveSelection() {
 
 func getConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".k8s-profi", "selected_kubeconfig.txt")
+	return filepath.Join(homeDir, ".k8s-pfr", "kubeconfig.mem")
 }
 
 func getKubeDir() string {
@@ -472,9 +442,17 @@ func (ns *NamespaceSelector) getNamespacesFromKubeconfig(kubeconfigPath string) 
 		}
 	}
 
+	// Захватываем stderr для диагностики
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Ошибка получения namespaces: %v", err)
+		errMsg := fmt.Sprintf("Ошибка получения namespaces: %v", err)
+		if stderr.Len() > 0 {
+			errMsg += fmt.Sprintf(" | Details: %s", stderr.String())
+		}
+		log.Print(errMsg)
 		return []string{}
 	}
 
@@ -518,7 +496,7 @@ func (ns *NamespaceSelector) saveSelection() {
 
 func getNamespaceConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".k8s-profi", "selected_namespace.txt")
+	return filepath.Join(homeDir, ".k8s-pfr", "namespace.mem")
 }
 
 func (ns *NamespaceSelector) Layout(gtx layout.Context, th *material.Theme, app *Application) layout.Dimensions {
@@ -764,8 +742,10 @@ func (fs *FormatSelector) loadSelection() {
 			}
 		}
 	}
-	// Default select "(none)"
-	fs.selectedFormat = "(none)"
+	// Default select "heatmap" и сохраняем это значение
+	fs.selectedFormat = "heatmap"
+	os.MkdirAll(filepath.Dir(configFile), 0755)
+	os.WriteFile(configFile, []byte("heatmap"), 0644)
 }
 
 func (fs *FormatSelector) saveSelection() {
@@ -1038,8 +1018,17 @@ func (ps *PodSelector) getPodsFromKubectl(kubeconfigPath, namespace string) []st
 		}
 	}
 
+	// Захватываем stderr для диагностики
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	output, err := cmd.Output()
 	if err != nil {
+		if stderr.Len() > 0 {
+			log.Printf("Error getting pods: %v | Details: %s", err, stderr.String())
+		} else {
+			log.Printf("Error getting pods: %v", err)
+		}
 		return []string{}
 	}
 
@@ -1274,26 +1263,47 @@ func (ps *PodSelector) IsExpanded() bool {
 
 func getPodConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-profi")
-	return filepath.Join(configDir, "pod")
+	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	return filepath.Join(configDir, "pod.mem")
 }
 
 func getAsprofArgsConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-profi")
-	return filepath.Join(configDir, "asprof_args.txt")
+	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	return filepath.Join(configDir, "asprof_args.mem")
 }
 
 func getFolderConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-profi")
-	return filepath.Join(configDir, "selected_folder.txt")
+	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	return filepath.Join(configDir, "jfr_folder.mem")
 }
 
 func getFormatConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-profi")
-	return filepath.Join(configDir, "selected_format.txt")
+	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	return filepath.Join(configDir, "convert_format.mem")
+}
+
+func getConfigDir() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".k8s-pfr")
+}
+
+func clearAllSavedData() error {
+	configDir := getConfigDir()
+	
+	// Удаляем всю директорию конфигурации
+	if err := os.RemoveAll(configDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove config directory: %v", err)
+	}
+	
+	// Создаем директорию заново
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %v", err)
+	}
+	
+	return nil
 }
 
 type Application struct {
@@ -1319,6 +1329,18 @@ type Application struct {
 	showBrowserButton  bool // Показывать ли кнопку открытия в браузере
 	htmlOutputPath     string // Путь к HTML файлу для открытия
 	hasCompletedRecording bool // Была ли завершена запись для текущей конфигурации
+	isInitializing     bool   // Идет ли первоначальная инициализация
+	initializationMessage string // Сообщение инициализации
+	hasError           bool   // Есть ли критическая ошибка
+	
+	// Состояние выбора папки
+	isChoosingFolder   bool   // Открыто ли окно выбора папки
+	errorMessage       string // Сообщение об ошибке
+	statusClickable    widget.Clickable // Кликабельность статуса
+	outputPath         string // Путь к папке с результатами
+	
+	// Логотип приложения
+	logoImage          paint.ImageOp // Логотип
 }
 
 func (a *Application) closeAllSelectors() {
@@ -1328,14 +1350,27 @@ func (a *Application) closeAllSelectors() {
 	a.formatSelector.expanded = false
 }
 
+func (a *Application) loadLogo() {
+	logoPath := filepath.Join("media", "logo_50.png")
+	
+	file, err := os.Open(logoPath)
+	if err != nil {
+		log.Printf("Не удалось открыть файл логотипа: %v", err)
+		return
+	}
+	defer file.Close()
+	
+	img, err := png.Decode(file)
+	if err != nil {
+		log.Printf("Не удалось декодировать PNG: %v", err)
+		return
+	}
+	
+	a.logoImage = paint.NewImageOp(img)
+}
+
 func (a *Application) drawLoadingOverlay(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	if !a.isLoading {
-		return layout.Dimensions{}
-	}
-
-	// Автоматически скрываем загрузку через 2 секунды
-	if time.Since(a.loadingStartTime) > 2*time.Second {
-		a.isLoading = false
 		return layout.Dimensions{}
 	}
 
@@ -1344,7 +1379,7 @@ func (a *Application) drawLoadingOverlay(gtx layout.Context, th *material.Theme)
 	return material.Clickable(gtx, clickable, func(gtx layout.Context) layout.Dimensions {
 		// Очень темный полупрозрачный фон (opacity 0.8)
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-		paint.Fill(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 204}) // 255 * 0.8 = 204
+		paint.Fill(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 250}) // 255 * 0.8 = 204
 
 		// Center "Loading" text
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -1380,6 +1415,129 @@ func (a *Application) drawRecordingOverlay(gtx layout.Context, th *material.Them
 	})
 }
 
+func (a *Application) drawFolderChoosingOverlay(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	if !a.isChoosingFolder {
+		return layout.Dimensions{}
+	}
+
+	// Создаем кликабельную область на весь экран для блокировки
+	clickable := &widget.Clickable{}
+	return material.Clickable(gtx, clickable, func(gtx layout.Context) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		paint.Fill(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 253})
+
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							label := material.Label(th, unit.Sp(24), "Choosing JFR folder...")
+							label.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+							return label.Layout(gtx)
+						})
+					}),
+				)
+			}),
+		)
+	})
+}
+
+// Функция для проверки и загрузки необходимых файлов при первом запуске
+func checkAndDownloadDependencies() error {
+	// Проверяем существование папки ./data
+	if _, err := os.Stat("./data"); os.IsNotExist(err) {
+		log.Println("Creating ./data directory...")
+		if err := os.MkdirAll("./data", 0755); err != nil {
+			return fmt.Errorf("failed to create ./data directory: %v", err)
+		}
+	}
+
+	// Проверяем async-profiler
+	profilerPath := "./data/async-profiler-4.1-linux-x64.tar.gz"
+	if _, err := os.Stat(profilerPath); os.IsNotExist(err) {
+		log.Println("Downloading async-profiler...")
+		profilerURL := "https://github.com/async-profiler/async-profiler/releases/download/v4.1/async-profiler-4.1-linux-x64.tar.gz"
+		if err := downloadFile(profilerURL, profilerPath); err != nil {
+			return fmt.Errorf("failed to download async-profiler: %v", err)
+		}
+	}
+
+	// Проверяем jfr-converter
+	converterPath := "./data/jfr-converter.jar"
+	if _, err := os.Stat(converterPath); os.IsNotExist(err) {
+		log.Println("Downloading jfr-converter...")
+		converterURL := "https://github.com/async-profiler/async-profiler/releases/download/v4.1/jfr-converter.jar"
+		if err := downloadFile(converterURL, converterPath); err != nil {
+			return fmt.Errorf("failed to download jfr-converter: %v", err)
+		}
+	}
+
+	// Проверяем команду kubectl
+	if err := checkKubectl(); err != nil {
+		return fmt.Errorf("kubectl check failed: %v", err)
+	}
+
+	// Проверяем папку ~/.kube
+	if err := checkKubeDirectory(); err != nil {
+		return fmt.Errorf("kube directory check failed: %v", err)
+	}
+
+	return nil
+}
+
+// Функция для загрузки файла
+func downloadFile(url, filepath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// Функция для проверки kubectl
+func checkKubectl() error {
+	cmd := exec.Command("kubectl", "version", "--client=true")
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+		}
+	}
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("kubectl not found or not working: %v", err)
+	}
+	return nil
+}
+
+// Функция для проверки папки ~/.kube
+func checkKubeDirectory() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	kubeDir := filepath.Join(homeDir, ".kube")
+	if _, err := os.Stat(kubeDir); os.IsNotExist(err) {
+		return fmt.Errorf("~/.kube directory not found - please set up kubectl first")
+	}
+
+	return nil
+}
+
 func NewApplication() *Application {
 	app := &Application{
 		kubeconfigSelector: NewKubeconfigSelector(),
@@ -1391,24 +1549,91 @@ func NewApplication() *Application {
 		},
 	}
 	app.detectVersion()
-	app.loadAsprofArgs()     // Load saved arguments
-	app.loadSelectedFolder() // Load saved folder
-	app.profilerPath = app.findProfilerPath() // Find profiler automatically
+	app.loadLogo() // Загружаем логотип
 
-	selectedConfig := app.kubeconfigSelector.GetSelectedConfig()
-	if selectedConfig != "" {
-		go func() {
-			app.namespaceSelector.LoadNamespaces(selectedConfig, app)
+	// Проверяем существование data директории
+	if _, err := os.Stat("./data"); os.IsNotExist(err) {
+		// Если data нет, запускаем инициализацию
+		app.isInitializing = true
+		app.initializationMessage = "Loading async-profiler '4.1'..."
+		
+		// Очищаем все сохраненные данные
+		if err := clearAllSavedData(); err != nil {
+			log.Printf("Warning: Failed to clear saved data: %v", err)
+		}
+		
+		// Запускаем загрузку зависимостей в фоне
+		go app.performInitialization()
+	} else {
+		// Если data есть, загружаем как обычно
+		app.loadAsprofArgs()     // Load saved arguments
+		app.loadSelectedFolder() // Load saved folder
+		app.profilerPath = app.findProfilerPath() // Find profiler automatically
 
-			// Загружаем поды если есть сохраненный namespace
-			selectedNamespace := app.namespaceSelector.GetSelectedNamespace()
-			if selectedNamespace != "" {
-				app.podSelector.LoadPods(selectedConfig, selectedNamespace, app)
-			}
-		}()
+		selectedConfig := app.kubeconfigSelector.GetSelectedConfig()
+		if selectedConfig != "" {
+			go func() {
+				app.namespaceSelector.LoadNamespaces(selectedConfig, app)
+
+				// Загружаем поды если есть сохраненный namespace
+				selectedNamespace := app.namespaceSelector.GetSelectedNamespace()
+				if selectedNamespace != "" {
+					app.podSelector.LoadPods(selectedConfig, selectedNamespace, app)
+				}
+			}()
+		}
 	}
 
 	return app
+}
+
+func (a *Application) performInitialization() {
+	// Проверяем kubectl и .kube перед загрузкой зависимостей
+	if err := checkKubectl(); err != nil {
+		a.hasError = true
+		a.errorMessage = "kubectl not found"
+		a.isInitializing = false
+		if a.invalidate != nil {
+			a.invalidate()
+		}
+		return
+	}
+	
+	if err := checkKubeDirectory(); err != nil {
+		a.hasError = true
+		a.errorMessage = ".kube directory not found or empty"
+		a.isInitializing = false
+		if a.invalidate != nil {
+			a.invalidate()
+		}
+		return
+	}
+
+	// Загружаем зависимости
+	if err := checkAndDownloadDependencies(); err != nil {
+		log.Printf("Warning: Failed to check dependencies: %v", err)
+	}
+	
+	// После загрузки инициализируем все как обычно
+	a.loadAsprofArgs()
+	a.loadSelectedFolder()
+	a.profilerPath = a.findProfilerPath()
+
+	selectedConfig := a.kubeconfigSelector.GetSelectedConfig()
+	if selectedConfig != "" {
+		a.namespaceSelector.LoadNamespaces(selectedConfig, a)
+
+		selectedNamespace := a.namespaceSelector.GetSelectedNamespace()
+		if selectedNamespace != "" {
+			a.podSelector.LoadPods(selectedConfig, selectedNamespace, a)
+		}
+	}
+	
+	// Завершаем инициализацию
+	a.isInitializing = false
+	if a.invalidate != nil {
+		a.invalidate()
+	}
 }
 
 func (a *Application) loadAsprofArgs() {
@@ -1418,6 +1643,14 @@ func (a *Application) loadAsprofArgs() {
 		savedArgs := strings.TrimSpace(string(data))
 		a.asprofArgs = savedArgs
 		a.asprofArgsEditor.SetText(savedArgs)
+	} else {
+		// Устанавливаем дефолтные значения если файл не найден
+		defaultArgs := "-e cpu -d 30"
+		a.asprofArgs = defaultArgs
+		a.asprofArgsEditor.SetText(defaultArgs)
+		// Сохраняем дефолтные значения
+		os.MkdirAll(filepath.Dir(configFile), 0755)
+		os.WriteFile(configFile, []byte(defaultArgs), 0644)
 	}
 }
 
@@ -1477,15 +1710,23 @@ func (a *Application) drawFolderSelector(gtx layout.Context, th *material.Theme)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					// Обработка клика по кнопке (только если не записываем)
-					for a.folderButton.Clicked(gtx) && !a.isRecording {
+					// Обработка клика по кнопке (только если не записываем и не выбираем папку)
+					for a.folderButton.Clicked(gtx) && !a.isRecording && !a.isChoosingFolder {
+						// Показываем занавес и запускаем нативный диалог
+						a.isChoosingFolder = true
+						if a.invalidate != nil {
+							a.invalidate()
+						}
+						
 						go func() {
 							if folder, err := chooseFolderDialog(); err == nil {
 								a.selectedFolder = folder
 								a.saveSelectedFolder()
-								if a.invalidate != nil {
-									a.invalidate()
-								}
+							}
+							// Убираем занавес в любом случае
+							a.isChoosingFolder = false
+							if a.invalidate != nil {
+								a.invalidate()
 							}
 						}()
 					}
@@ -1528,7 +1769,7 @@ func (a *Application) drawRecordingControls(gtx layout.Context, th *material.The
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 		// Пустое пространство слева
 		layout.Flexed(1, layout.Spacer{}.Layout),
-		// Правая панель с кнопками и статусом
+		// Правая панель с кнопками и статусом (вертикально)
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical, Alignment: layout.End}.Layout(gtx,
 				// Кнопка "Start Recording"
@@ -1568,48 +1809,72 @@ func (a *Application) drawRecordingControls(gtx layout.Context, th *material.The
 					}
 					return btn.Layout(gtx)
 				}),
+				// Отступ между кнопкой и статусом
+				layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+				// Результат записи
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if a.recordingResult == "" {
+						return layout.Dimensions{}
+					}
+					
+					// Проверяем клик по статусу "Saved"
+					if strings.Contains(a.recordingResult, "Saved") && a.outputPath != "" {
+						for a.statusClickable.Clicked(gtx) {
+							go a.openFolder(a.outputPath)
+						}
+						
+						// Pointer cursor при наведении на статус "Saved"
+						if a.statusClickable.Hovered() {
+							pointer.CursorPointer.Add(gtx.Ops)
+						}
+						
+						return material.Clickable(gtx, &a.statusClickable, func(gtx layout.Context) layout.Dimensions {
+							label := material.Label(th, unit.Sp(12), a.recordingResult)
+							if strings.Contains(a.recordingResult, "Error") {
+								label.Color = color.NRGBA{R: 200, G: 50, B: 50, A: 255} // Красный для ошибок
+							} else {
+								label.Color = color.NRGBA{R: 50, G: 150, B: 50, A: 255} // Зеленый для успеха (подчеркиваем что кликабельно)
+							}
+							return label.Layout(gtx)
+						})
+					} else {
+						// Обычный статус (не кликабельный)
+						label := material.Label(th, unit.Sp(12), a.recordingResult)
+						if strings.Contains(a.recordingResult, "Error") {
+							label.Color = color.NRGBA{R: 200, G: 50, B: 50, A: 255} // Красный для ошибок
+						} else {
+							label.Color = color.NRGBA{R: 50, G: 150, B: 50, A: 255} // Зеленый для успеха
+						}
+						return label.Layout(gtx)
+					}
+				}),
+				// Отступ между статусом и кнопкой браузера
+				layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+				// Кнопка "Open in Browser" для HTML/heatmap файлов
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if !a.showBrowserButton || a.htmlOutputPath == "" {
+						return layout.Dimensions{}
+					}
+					// Устанавливаем фиксированную ширину для кнопки (такую же как у кнопки записи)
+					gtx.Constraints.Min.X = gtx.Dp(unit.Dp(150))
+					gtx.Constraints.Max.X = gtx.Dp(unit.Dp(150))
+					
+					// Обработка клика по кнопке браузера
+					for a.openBrowserButton.Clicked(gtx) {
+						go a.openInBrowser(a.htmlOutputPath)
+					}
+
+					// Pointer cursor при наведении
+					if a.openBrowserButton.Hovered() {
+						pointer.CursorPointer.Add(gtx.Ops)
+					}
+
+					btn := material.Button(th, &a.openBrowserButton, "Open in Browser")
+					btn.Background = color.NRGBA{R: 33, G: 150, B: 243, A: 255} // Синяя кнопка
+					btn.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+					return btn.Layout(gtx)
+				}),
 			)
-		}),
-		// Результат записи
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if a.recordingResult == "" {
-				return layout.Dimensions{}
-			}
-			return layout.Inset{Top: unit.Dp(8), Left: unit.Dp(130)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				label := material.Label(th, unit.Sp(12), a.recordingResult)
-				if strings.Contains(a.recordingResult, "Error") {
-					label.Color = color.NRGBA{R: 200, G: 50, B: 50, A: 255} // Красный для ошибок
-				} else {
-					label.Color = color.NRGBA{R: 50, G: 150, B: 50, A: 255} // Зеленый для успеха
-				}
-				return label.Layout(gtx)
-			})
-		}),
-		// Кнопка "Open in Browser" для HTML/heatmap файлов
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if !a.showBrowserButton || a.htmlOutputPath == "" {
-				return layout.Dimensions{}
-			}
-			return layout.Inset{Top: unit.Dp(8), Left: unit.Dp(130)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				// Устанавливаем фиксированную ширину для кнопки (такую же как у кнопки записи)
-				gtx.Constraints.Min.X = gtx.Dp(unit.Dp(150))
-				gtx.Constraints.Max.X = gtx.Dp(unit.Dp(150))
-				
-				// Обработка клика по кнопке браузера
-				for a.openBrowserButton.Clicked(gtx) {
-					go a.openInBrowser(a.htmlOutputPath)
-				}
-
-				// Pointer cursor при наведении
-				if a.openBrowserButton.Hovered() {
-					pointer.CursorPointer.Add(gtx.Ops)
-				}
-
-				btn := material.Button(th, &a.openBrowserButton, "Open in Browser")
-				btn.Background = color.NRGBA{R: 33, G: 150, B: 243, A: 255} // Синяя кнопка
-				btn.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-				return btn.Layout(gtx)
-			})
 		}),
 	)
 }
@@ -1664,7 +1929,8 @@ func (a *Application) detectVersion() {
 	// Ищем файлы async-profiler*.tar.gz прямо в data/
 	files, err := filepath.Glob(filepath.Join("data", "async-profiler*.tar.gz"))
 	if err != nil || len(files) == 0 {
-		a.version = "not found"
+		// Если файлы не найдены, показываем версию по умолчанию
+		a.version = "4.1"
 		return
 	}
 
@@ -1730,6 +1996,27 @@ func (a *Application) openInBrowser(filePath string) {
 	}
 }
 
+func (a *Application) openFolder(folderPath string) {
+	log.Printf("Открываем папку: %s", folderPath)
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", folderPath)
+	case "darwin":
+		cmd = exec.Command("open", folderPath)
+	case "linux":
+		cmd = exec.Command("xdg-open", folderPath)
+	default:
+		log.Printf("Неподдерживаемая ОС: %s", runtime.GOOS)
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("Ошибка открытия папки: %v", err)
+	}
+}
+
 // Функция для выполнения kubectl команд с правильным KUBECONFIG
 func runKubectlWithConfig(kubeconfigPath string, args ...string) error {
 	cmd := exec.Command("kubectl", args...)
@@ -1768,6 +2055,8 @@ func (a *Application) startRecording() {
 		// Устанавливаем состояние записи
 		a.isRecording = true
 		a.recordingResult = ""
+		a.showBrowserButton = false // Скрываем кнопку браузера при новой записи
+		a.htmlOutputPath = ""       // Очищаем путь к HTML файлу
 		a.invalidate()
 
 		// Получаем параметры
@@ -1796,8 +2085,9 @@ func (a *Application) startRecording() {
 		}
 
 		// Создаем временный файл kubeconfig
-		tmpDir, err := os.MkdirTemp("", "k8s-profiler")
-		if err != nil {
+		homeDir, _ := os.UserHomeDir()
+		tmpDir := filepath.Join(homeDir, ".k8s-pfr", "tmp")
+		if err := os.MkdirAll(tmpDir, 0755); err != nil {
 			a.recordingResult = fmt.Sprintf("Error creating temp directory: %v", err)
 			a.isRecording = false
 			a.invalidate()
@@ -1834,6 +2124,10 @@ func (a *Application) startRecording() {
 		checkArgs := append(nsArgs, "exec", selectedPod, "--", "bash", "-c", fmt.Sprintf("[ -d %s ]", remoteDir))
 		checkCmd := exec.Command("kubectl", checkArgs...)
 		checkCmd.Env = append(os.Environ(), "KUBECONFIG="+tempKubeconfigPath)
+		
+		// Захватываем stderr для подробной информации
+		var checkStderr bytes.Buffer
+		checkCmd.Stderr = &checkStderr
 		
 		// Скрываем окно командной строки на Windows
 		if runtime.GOOS == "windows" {
@@ -1889,8 +2183,12 @@ func (a *Application) startRecording() {
 		a.recordingResult = "Copying result..."
 		a.invalidate()
 
+		// Создаем имя файла с timestamp
+		timestamp := time.Now().Format("20060102_150405")
+		filename := fmt.Sprintf("%s__%s__%s.jfr", selectedNamespace, selectedPod, timestamp)
+		
 		// Создаем целевую папку если она не существует
-		outputPath := filepath.Join(outputFolder, "recording.jfr")
+		outputPath := filepath.Join(outputFolder, filename)
 		if err := os.MkdirAll(outputFolder, 0755); err != nil {
 			a.recordingResult = fmt.Sprintf("Error creating output folder: %v", err)
 			a.isRecording = false
@@ -1899,7 +2197,7 @@ func (a *Application) startRecording() {
 		}
 
 		// Сначала копируем из пода в текущую папку (рядом с исполняемым файлом)
-		localTempFile := "./recording.jfr"
+		localTempFile := "./" + filename
 		
 		var sourceSpec string
 		if selectedNamespace != "" {
@@ -1950,31 +2248,59 @@ func (a *Application) startRecording() {
 				}
 			}
 			
+			// Захватываем stderr для подробной информации об ошибках
+			var stderr bytes.Buffer
+			convertCmd.Stderr = &stderr
+			
 			if err := convertCmd.Run(); err != nil {
-				a.recordingResult = fmt.Sprintf("Error converting JFR: %v", err)
+				errMsg := fmt.Sprintf("Error converting JFR: %v", err)
+				if stderr.Len() > 0 {
+					errMsg += fmt.Sprintf(" | Details: %s", stderr.String())
+				}
+				a.recordingResult = errMsg
 				a.isRecording = false
 				os.Remove(localTempFile) // Удаляем временный файл
 				a.invalidate()
 				return
 			}
 
-			// Определяем расширение выходного файла
-			var outputExt string
-			switch selectedFormat {
-			case "heatmap", "html":
-				outputExt = ".html"
-				a.showBrowserButton = true
-			case "json":
-				outputExt = ".json"
-			case "csv":
-				outputExt = ".csv"
-			default:
-				outputExt = "." + selectedFormat
+			// jfr-converter создает файл с тем же именем как входной, но с другим расширением
+			// Ищем любой файл с базовым именем JFR файла
+			baseNameWithoutExt := strings.TrimSuffix(localTempFile, ".jfr")
+			pattern := baseNameWithoutExt + ".*"
+			
+			files, err := filepath.Glob(pattern)
+			if err != nil || len(files) == 0 {
+				a.recordingResult = "Error: converted file not found"
+				a.isRecording = false
+				os.Remove(localTempFile)
+				a.invalidate()
+				return
 			}
-
-			// Перемещаем конвертированный файл в целевую папку
-			convertedFile := "./recording" + outputExt
-			finalOutputPath := filepath.Join(outputFolder, "recording"+outputExt)
+			
+			// Находим файл который НЕ JFR (созданный конвертером)
+			var convertedFile string
+			for _, file := range files {
+				if !strings.HasSuffix(file, ".jfr") {
+					convertedFile = file
+					break
+				}
+			}
+			
+			if convertedFile == "" {
+				a.recordingResult = "Error: no converted file found (only JFR)"
+				a.isRecording = false
+				os.Remove(localTempFile)
+				a.invalidate()
+				return
+			}
+			
+			// Получаем расширение созданного файла
+			actualExt := filepath.Ext(convertedFile)
+			
+			// Создаем правильное имя для выходного файла
+			baseFilename := fmt.Sprintf("%s__%s__%s", selectedNamespace, selectedPod, timestamp)
+			finalOutputPath := filepath.Join(outputFolder, baseFilename+actualExt)
 			if err := os.Rename(convertedFile, finalOutputPath); err != nil {
 				a.recordingResult = fmt.Sprintf("Error moving converted file: %v", err)
 				a.isRecording = false
@@ -1983,8 +2309,8 @@ func (a *Application) startRecording() {
 				return
 			}
 
-			// Сохраняем путь к HTML файлу для кнопки браузера
-			if outputExt == ".html" {
+			// Сохраняем путь к HTML файлу для кнопки браузера и определяем showBrowserButton
+			if actualExt == ".html" || selectedFormat == "heatmap" || selectedFormat == "html" {
 				a.htmlOutputPath = finalOutputPath
 			}
 
@@ -1992,8 +2318,10 @@ func (a *Application) startRecording() {
 			os.Remove(localTempFile)
 
 			a.recordingResult = fmt.Sprintf("Saved JFR and %s files to %s", selectedFormat, outputFolder)
+			a.outputPath = outputFolder // Сохраняем путь для кликабельности
 		} else {
 			a.recordingResult = fmt.Sprintf("Saved to %s", outputPath)
+			a.outputPath = filepath.Dir(outputPath) // Сохраняем папку с файлом
 		}
 
 		// Очищаем временные файлы в поде
@@ -2001,17 +2329,24 @@ func (a *Application) startRecording() {
 		a.invalidate()
 		
 		// Удаляем файлы и папку профилировщика
-		cleanupArgs := append(nsArgs, "exec", selectedPod, "--", "rm", "-rf", remoteJfr, remoteTar, "/tmp/async-profiler-2.9-linux-x64")
+		cleanupArgs := append(nsArgs, "exec", selectedPod, "--", "rm", "-rf", remoteJfr, remoteTar, remoteDir)
 		runKubectlWithConfig(tempKubeconfigPath, cleanupArgs...) // Игнорируем ошибки очистки
 
 		// Завершение
 		if selectedFormat != "" && selectedFormat != "(none)" {
 			a.recordingResult = fmt.Sprintf("Saved JFR and %s files to %s", selectedFormat, outputFolder)
+			a.outputPath = outputFolder // Сохраняем путь для кликабельности
 		} else {
 			a.recordingResult = fmt.Sprintf("Saved to %s", outputPath)
+			a.outputPath = filepath.Dir(outputPath) // Сохраняем папку с файлом
 		}
 		a.isRecording = false
 		a.hasCompletedRecording = true // Помечаем что запись завершена
+
+		if selectedFormat == "heatmap" || selectedFormat == "html" {
+			a.showBrowserButton = true
+		}
+		
 		a.invalidate()
 	}()
 }
@@ -2053,21 +2388,155 @@ func run(w *app.Window) error {
 			// Основной layout
 			layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+					// Если есть критическая ошибка - показываем окно ошибки
+					if appInstance.hasError {
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							// Заголовок вверху
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(50)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+										// Логотип и заголовок слева
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+												// Логотип
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													if appInstance.logoImage.Size().X > 0 {
+														// Отрисовываем логотип как есть (уже 24x24)
+														appInstance.logoImage.Add(gtx.Ops)
+														paint.PaintOp{}.Add(gtx.Ops)
+														return layout.Dimensions{Size: appInstance.logoImage.Size()}
+													}
+													return layout.Dimensions{}
+												}),
+												// Отступ
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
+												}),
+												// Текст заголовка
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
+													label.Font.Weight = font.ExtraBold
+													label.Color = th.Palette.Fg
+													return label.Layout(gtx)
+												}),
+											)
+										}),
+										// Пространство справа
+										layout.Flexed(1, layout.Spacer{}.Layout),
+									)
+								})
+							}),
+							// Центрированное сообщение об ошибке
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+												label := material.Label(th, unit.Sp(18), appInstance.errorMessage)
+												label.Color = color.NRGBA{R: 255, G: 0, B: 0, A: 255} // Красный цвет для ошибки
+												label.Alignment = text.Middle
+												return label.Layout(gtx)
+											}),
+										)
+									}),
+								)
+							}),
+						)
+					}
+
+					// Если идет инициализация - показываем только заголовок и лоадер
+					if appInstance.isInitializing {
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							// Заголовок вверху
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(50)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+										// Логотип и заголовок слева
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+												// Логотип
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													if appInstance.logoImage.Size().X > 0 {
+														// Отрисовываем логотип как есть (уже 24x24)
+														appInstance.logoImage.Add(gtx.Ops)
+														paint.PaintOp{}.Add(gtx.Ops)
+														return layout.Dimensions{Size: appInstance.logoImage.Size()}
+													}
+													return layout.Dimensions{}
+												}),
+												// Отступ
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
+												}),
+												// Текст заголовка
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
+													label.Font.Weight = font.ExtraBold
+													label.Color = th.Palette.Fg
+													return label.Layout(gtx)
+												}),
+											)
+										}),
+										// Пространство справа
+										layout.Flexed(1, layout.Spacer{}.Layout),
+									)
+								})
+							}),
+							// Центрированное сообщение о загрузке
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+												label := material.Label(th, unit.Sp(18), appInstance.initializationMessage)
+												label.Color = th.Palette.Fg
+												label.Alignment = text.Middle
+												return label.Layout(gtx)
+											}),
+										)
+									}),
+								)
+							}),
+						)
+					}
+
+					// Обычный UI
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						// Верхняя панель с названием и версией
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(16), Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									// Пустое пространство слева для центрирования
-									layout.Flexed(1, layout.Spacer{}.Layout),
-									// Название приложения в центре
+									// Логотип и название приложения слева
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										label := material.Label(th, unit.Sp(16), "k8s-pfr.beta")
-										label.Font.Weight = font.ExtraBold
-										label.Color = th.Palette.Fg
-										return label.Layout(gtx)
+										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+											// Логотип
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												// Проверяем что логотип загружен
+												if appInstance.logoImage.Size().X > 0 {
+													// Отрисовываем логотип как есть (уже 24x24)
+													appInstance.logoImage.Add(gtx.Ops)
+													paint.PaintOp{}.Add(gtx.Ops)
+													
+													return layout.Dimensions{
+														Size: appInstance.logoImage.Size(),
+													}
+												}
+												return layout.Dimensions{}
+											}),
+											// Отступ между логотипом и текстом
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
+											}),
+											// Текст заголовка
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
+												label.Font.Weight = font.ExtraBold
+												label.Color = th.Palette.Fg
+												return label.Layout(gtx)
+											}),
+										)
 									}),
-									// Пространство между центром и бейджем
+									// Пространство между логотипом/названием и версией
 									layout.Flexed(1, layout.Spacer{}.Layout),
 									// Версия async-profiler справа
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -2215,6 +2684,10 @@ func run(w *app.Window) error {
 				// Блокирующий overlay во время записи
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					return appInstance.drawRecordingOverlay(gtx, th)
+				}),
+				// Занавес во время выбора папки
+				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+					return appInstance.drawFolderChoosingOverlay(gtx, th)
 				}),
 			)
 
