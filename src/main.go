@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"gioui.org/app"
-	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -117,6 +116,10 @@ func (ks *KubeconfigSelector) filterConfigs() {
 			if strings.Contains(strings.ToLower(config), searchLower) {
 				ks.filteredConfigs = append(ks.filteredConfigs, config)
 			}
+		}
+		// Если ничего не найдено, добавляем "(нет)"
+		if len(ks.filteredConfigs) == 0 {
+			ks.filteredConfigs = []string{"(нет)"}
 		}
 	}
 	ks.clickables = make([]widget.Clickable, len(ks.filteredConfigs))
@@ -223,7 +226,7 @@ func (ks *KubeconfigSelector) Layout(gtx layout.Context, th *material.Theme, app
 			)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if !ks.expanded || len(ks.configs) == 0 {
+			if !ks.expanded {
 				return layout.Dimensions{}
 			}
 
@@ -261,6 +264,10 @@ func (ks *KubeconfigSelector) Layout(gtx layout.Context, th *material.Theme, app
 							}),
 							// Список конфигов - занимает все доступное место
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								if len(ks.filteredConfigs) == 0 {
+									// Если нет результатов поиска, показываем пустое пространство
+									return layout.Dimensions{}
+								}
 								return material.List(th, &ks.list).Layout(gtx, len(ks.filteredConfigs), func(gtx layout.Context, index int) layout.Dimensions {
 									if index >= len(ks.clickables) {
 										return layout.Dimensions{}
@@ -269,6 +276,26 @@ func (ks *KubeconfigSelector) Layout(gtx layout.Context, th *material.Theme, app
 									// Обработка клика по элементу списка
 									for ks.clickables[index].Clicked(gtx) {
 										newConfig := ks.filteredConfigs[index]
+										
+										// Если выбрали "(нет)" - очищаем выбор
+										if newConfig == "(нет)" {
+											ks.selectedConfig = ""
+											ks.expanded = false
+											ks.saveSelection()
+											
+											// Сбрасываем namespace и pod
+											app.namespaceSelector.selectedNamespace = ""
+											app.namespaceSelector.namespaces = []string{}
+											app.podSelector.selectedPod = ""
+											app.podSelector.pods = []string{}
+											
+											// Очищаем статус записи и кнопку браузера
+											app.recordingResult = ""
+											app.showBrowserButton = false
+											app.htmlOutputPath = ""
+											app.hasCompletedRecording = false
+											break
+										}
 										
 										// Если выбираем тот же конфиг - просто закрываем селект
 										if newConfig == ks.selectedConfig {
@@ -473,6 +500,10 @@ func (ns *NamespaceSelector) filterNamespaces() {
 				ns.filteredNamespaces = append(ns.filteredNamespaces, namespace)
 			}
 		}
+		// Если ничего не найдено, добавляем "(нет)"
+		if len(ns.filteredNamespaces) == 0 {
+			ns.filteredNamespaces = []string{"(нет)"}
+		}
 	}
 	ns.clickables = make([]widget.Clickable, len(ns.filteredNamespaces))
 }
@@ -561,7 +592,7 @@ func (ns *NamespaceSelector) Layout(gtx layout.Context, th *material.Theme, app 
 			)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if !ns.expanded || len(ns.namespaces) == 0 {
+			if !ns.expanded {
 				return layout.Dimensions{}
 			}
 
@@ -599,6 +630,10 @@ func (ns *NamespaceSelector) Layout(gtx layout.Context, th *material.Theme, app 
 				}),
 				// Список namespaces - занимает все доступное место
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					if len(ns.filteredNamespaces) == 0 {
+						// Если нет результатов поиска, показываем пустое пространство
+						return layout.Dimensions{}
+					}
 					return material.List(th, &ns.list).Layout(gtx, len(ns.filteredNamespaces), func(gtx layout.Context, index int) layout.Dimensions {
 						if index >= len(ns.clickables) {
 							return layout.Dimensions{}
@@ -607,6 +642,24 @@ func (ns *NamespaceSelector) Layout(gtx layout.Context, th *material.Theme, app 
 						// Обработка клика по элементу списка
 						for ns.clickables[index].Clicked(gtx) {
 							newNamespace := ns.filteredNamespaces[index]
+							
+							// Если кликнули по "(нет)" - очищаем выбор
+							if newNamespace == "(нет)" {
+								ns.selectedNamespace = ""
+								ns.expanded = false
+								ns.saveSelection()
+								
+								// Сбрасываем pod при очистке namespace
+								app.podSelector.selectedPod = ""
+								app.podSelector.pods = []string{}
+								
+								// Очищаем статус записи и кнопку браузера
+								app.recordingResult = ""
+								app.showBrowserButton = false
+								app.htmlOutputPath = ""
+								app.hasCompletedRecording = false
+								break
+							}
 							
 							// Если выбираем тот же namespace - просто закрываем селект
 							if newNamespace == ns.selectedNamespace {
@@ -727,6 +780,11 @@ func (fs *FormatSelector) filterFormats() {
 			fs.filteredFormats = append(fs.filteredFormats, format)
 		}
 	}
+	
+	// Если после фильтрации ничего не найдено, добавляем "(нет)"
+	if len(fs.filteredFormats) == 0 {
+		fs.filteredFormats = []string{"(нет)"}
+	}
 }
 
 func (fs *FormatSelector) loadSelection() {
@@ -829,7 +887,7 @@ func (fs *FormatSelector) Layout(gtx layout.Context, th *material.Theme, app *Ap
 			)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if !fs.expanded || len(fs.formats) == 0 {
+			if !fs.expanded || len(fs.filteredFormats) == 0 {
 				return layout.Dimensions{}
 			}
 
@@ -876,6 +934,17 @@ func (fs *FormatSelector) Layout(gtx layout.Context, th *material.Theme, app *Ap
 									// Handle item click
 									for fs.clickables[index].Clicked(gtx) {
 										newFormat := fs.filteredFormats[index]
+										
+										// Если кликнули по "(нет)" - очищаем выбор
+										if newFormat == "(нет)" {
+											fs.selectedFormat = ""
+											fs.expanded = false
+											fs.saveSelection()
+											if app.invalidate != nil {
+												app.invalidate()
+											}
+											break
+										}
 										
 										// Если выбираем тот же формат - просто закрываем селект
 										if newFormat == fs.selectedFormat {
@@ -1049,6 +1118,11 @@ func (ps *PodSelector) filterPods() {
 				ps.filteredPods = append(ps.filteredPods, pod)
 			}
 		}
+		
+		// Если после фильтрации ничего не найдено, добавляем "(нет)"
+		if len(ps.filteredPods) == 0 {
+			ps.filteredPods = []string{"(нет)"}
+		}
 	}
 	ps.clickables = make([]widget.Clickable, len(ps.filteredPods))
 }
@@ -1129,7 +1203,7 @@ func (ps *PodSelector) Layout(gtx layout.Context, th *material.Theme, app *Appli
 			)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if !ps.expanded || len(ps.pods) == 0 {
+			if !ps.expanded {
 				return layout.Dimensions{}
 			}
 
@@ -1167,6 +1241,10 @@ func (ps *PodSelector) Layout(gtx layout.Context, th *material.Theme, app *Appli
 				}),
 				// Список подов - занимает все доступное место
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					if len(ps.filteredPods) == 0 {
+						// Если нет результатов поиска, показываем пустое пространство
+						return layout.Dimensions{}
+					}
 					return material.List(th, &ps.list).Layout(gtx, len(ps.filteredPods), func(gtx layout.Context, index int) layout.Dimensions {
 						if index >= len(ps.clickables) {
 							return layout.Dimensions{}
@@ -1175,6 +1253,22 @@ func (ps *PodSelector) Layout(gtx layout.Context, th *material.Theme, app *Appli
 						// Обработка клика по элементу списка
 						for ps.clickables[index].Clicked(gtx) {
 							newPod := ps.filteredPods[index]
+							
+							// Если кликнули по "(нет)" - очищаем выбор
+							if newPod == "(нет)" {
+								ps.selectedPod = ""
+								ps.expanded = false
+								ps.saveSelection()
+								
+								// Очищаем статус записи и кнопку браузера при очистке pod
+								if app != nil {
+									app.recordingResult = ""
+									app.showBrowserButton = false
+									app.htmlOutputPath = ""
+									app.hasCompletedRecording = false
+								}
+								break
+							}
 							
 							// Если выбираем тот же pod - просто закрываем селект
 							if newPod == ps.selectedPod {
@@ -1341,6 +1435,9 @@ type Application struct {
 	
 	// Логотип приложения
 	logoImage          paint.ImageOp // Логотип
+	
+	// UI компоненты
+	headerComponent    *HeaderComponent // Компонент заголовка
 }
 
 func (a *Application) closeAllSelectors() {
@@ -1550,6 +1647,9 @@ func NewApplication() *Application {
 	}
 	app.detectVersion()
 	app.loadLogo() // Загружаем логотип
+	
+	// Создаем компонент заголовка
+	app.headerComponent = NewHeaderComponent(app.logoImage, &app.versionBadge, app.version)
 
 	// Проверяем существование data директории
 	if _, err := os.Stat("./data"); os.IsNotExist(err) {
@@ -2393,38 +2493,7 @@ func run(w *app.Window) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(50)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-										// Логотип и заголовок слева
-										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-												// Логотип
-												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													if appInstance.logoImage.Size().X > 0 {
-														// Отрисовываем логотип как есть (уже 24x24)
-														appInstance.logoImage.Add(gtx.Ops)
-														paint.PaintOp{}.Add(gtx.Ops)
-														return layout.Dimensions{Size: appInstance.logoImage.Size()}
-													}
-													return layout.Dimensions{}
-												}),
-												// Отступ
-												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
-												}),
-												// Текст заголовка
-												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
-													label.Font.Weight = font.ExtraBold
-													label.Color = th.Palette.Fg
-													return label.Layout(gtx)
-												}),
-											)
-										}),
-										// Пространство справа
-										layout.Flexed(1, layout.Spacer{}.Layout),
-									)
-								})
+								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th)
 							}),
 							// Центрированное сообщение об ошибке
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2449,38 +2518,7 @@ func run(w *app.Window) error {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(50)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-										// Логотип и заголовок слева
-										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-												// Логотип
-												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													if appInstance.logoImage.Size().X > 0 {
-														// Отрисовываем логотип как есть (уже 24x24)
-														appInstance.logoImage.Add(gtx.Ops)
-														paint.PaintOp{}.Add(gtx.Ops)
-														return layout.Dimensions{Size: appInstance.logoImage.Size()}
-													}
-													return layout.Dimensions{}
-												}),
-												// Отступ
-												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
-												}),
-												// Текст заголовка
-												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
-													label.Font.Weight = font.ExtraBold
-													label.Color = th.Palette.Fg
-													return label.Layout(gtx)
-												}),
-											)
-										}),
-										// Пространство справа
-										layout.Flexed(1, layout.Spacer{}.Layout),
-									)
-								})
+								return appInstance.headerComponent.SimpleHeaderLayout(gtx, th)
 							}),
 							// Центрированное сообщение о загрузке
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2504,59 +2542,16 @@ func run(w *app.Window) error {
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						// Верхняя панель с названием и версией
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return layout.Inset{Top: unit.Dp(16), Bottom: unit.Dp(16), Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									// Логотип и название приложения слева
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-											// Логотип
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												// Проверяем что логотип загружен
-												if appInstance.logoImage.Size().X > 0 {
-													// Отрисовываем логотип как есть (уже 24x24)
-													appInstance.logoImage.Add(gtx.Ops)
-													paint.PaintOp{}.Add(gtx.Ops)
-													
-													return layout.Dimensions{
-														Size: appInstance.logoImage.Size(),
-													}
-												}
-												return layout.Dimensions{}
-											}),
-											// Отступ между логотипом и текстом
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
-											}),
-											// Текст заголовка
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
-												label.Font.Weight = font.ExtraBold
-												label.Color = th.Palette.Fg
-												return label.Layout(gtx)
-											}),
-										)
-									}),
-									// Пространство между логотипом/названием и версией
-									layout.Flexed(1, layout.Spacer{}.Layout),
-									// Версия async-profiler справа
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										for appInstance.versionBadge.Clicked(gtx) {
-											appInstance.onVersionBadgeClicked()
-										}
-
-										// Устанавливаем pointer cursor при наведении
-										if appInstance.versionBadge.Hovered() {
-											pointer.CursorPointer.Add(gtx.Ops)
-										}
-
-										versionText := fmt.Sprintf("async-profiler %s", appInstance.version)
-										btn := material.Button(th, &appInstance.versionBadge, versionText)
-										btn.Background = th.Palette.ContrastBg
-										btn.Color = th.Palette.ContrastFg
-										return btn.Layout(gtx)
-									}),
-								)
-							})
+							// Обрабатываем клики на версии
+							for appInstance.versionBadge.Clicked(gtx) {
+								appInstance.onVersionBadgeClicked()
+							}
+							// Устанавливаем pointer cursor при наведении
+							if appInstance.versionBadge.Hovered() {
+								pointer.CursorPointer.Add(gtx.Ops)
+							}
+							
+							return appInstance.headerComponent.Layout(gtx, th)
 						}),
 						// Основное содержимое - используем Flexed для растягивания
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
