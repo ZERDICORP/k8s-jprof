@@ -1540,7 +1540,7 @@ func (a *Application) closeAllSelectors() {
 }
 
 func (a *Application) loadLogo() {
-	logoPath := filepath.Join("media", "logo_50.png")
+	logoPath := getLogoPath()
 	
 	file, err := os.Open(logoPath)
 	if err != nil {

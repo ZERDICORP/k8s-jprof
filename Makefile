@@ -1,13 +1,13 @@
 .PHONY: win mac help prebuild_win prebuild_macos package_win package_macos
 
-MEDIA_FILE=media\\logo_50.png
+MEDIA_DIR=media
 
 # ===========================
 # WINDOWS BUILD (run on Windows)
 # ===========================
 prebuild_win:
 	if not exist "bin\\win64\\media" mkdir "bin\\win64\\media"
-	copy /Y "$(MEDIA_FILE)" "bin\\win64\\media\\"
+	xcopy /E /I /Y "$(MEDIA_DIR)" "bin\\win64\\media\\"
 
 win: prebuild_win
 	go build -ldflags="-H windowsgui" -o ./bin/win64/k8s-prf.exe ./src/.
@@ -21,7 +21,7 @@ package_win:
 # ===========================
 prebuild_macos:
 	@mkdir -p ./bin/darwin/media
-	@cp ./media/logo_50.png ./bin/darwin/media/
+	@cp -R ./media/* ./bin/darwin/media/
 
 mac: prebuild_macos
 	go build -o ./bin/darwin/k8s-prf ./src/.
