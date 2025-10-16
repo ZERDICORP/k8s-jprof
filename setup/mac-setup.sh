@@ -3,7 +3,7 @@ set -e
 
 echo "Установка k8s-jprof"
 
-ZIP_URL="https://github.com/ZERDICORP/k8s-jprof/releases/download/latest/k8s-jprof-mac-release.zip"
+ZIP_URL="https://github.com/ZERDICORP/k8s-jprof/releases/download/1.0.beta/k8s-jprof-mac-release.zip"
 TMP_ZIP="/tmp/k8s-jprof-mac-release.zip"
 INSTALL_DIR="/usr/local/k8s-jprof"
 BIN_SYMLINK="/usr/local/bin/k8s-jprof"
