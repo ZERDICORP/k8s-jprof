@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image/color"
 	"image/png"
@@ -27,6 +28,9 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 )
+
+// Таймаут для kubectl команд (15 секунд)
+const kubectlTimeout = 15 * time.Second
 
 // Function to open folder selection dialog
 func chooseFolderDialog() (string, error) {
@@ -431,10 +435,16 @@ func (ns *NamespaceSelector) LoadNamespaces(kubeconfigPath string, app *Applicat
 		if len(namespaces) == 0 {
 			// Проверяем, что это действительно ошибка сети, а не пустой результат
 			// Попробуем простую команду kubectl version для проверки доступности кластера
-			cmd := exec.Command("kubectl", "--kubeconfig", filepath.Join(getKubeDir(), kubeconfigPath), "version", "--short")
+			ctx, cancel := context.WithTimeout(context.Background(), kubectlTimeout)
+			defer cancel()
+			
+			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", filepath.Join(getKubeDir(), kubeconfigPath), "version", "--short")
 			setSysProcAttr(cmd)
 			if err := cmd.Run(); err != nil {
 				// Если kubectl version не работает, значит проблема с сетью/кластером
+				if ctx.Err() == context.DeadlineExceeded {
+					log.Print("Таймаут при проверке kubectl version (15 сек)")
+				}
 				app.hasNetworkError = true
 				app.lastFailedAction = "loadNamespaces"
 				ns.loading = false
@@ -477,7 +487,11 @@ func (ns *NamespaceSelector) getNamespacesFromKubeconfig(kubeconfigPath string) 
 
 	fullPath := filepath.Join(getKubeDir(), kubeconfigPath)
 
-	cmd := exec.Command("kubectl", "--kubeconfig", fullPath, "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	// Создаем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), kubectlTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", fullPath, "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 
 	// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
 	setSysProcAttr(cmd)
@@ -488,11 +502,15 @@ func (ns *NamespaceSelector) getNamespacesFromKubeconfig(kubeconfigPath string) 
 
 	output, err := cmd.Output()
 	if err != nil {
-		errMsg := fmt.Sprintf("Ошибка получения namespaces: %v", err)
-		if stderr.Len() > 0 {
-			errMsg += fmt.Sprintf(" | Details: %s", stderr.String())
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Print("Таймаут при получении namespaces (15 сек)")
+		} else {
+			errMsg := fmt.Sprintf("Ошибка получения namespaces: %v", err)
+			if stderr.Len() > 0 {
+				errMsg += fmt.Sprintf(" | Details: %s", stderr.String())
+			}
+			log.Print(errMsg)
 		}
-		log.Print(errMsg)
 		return []string{}
 	}
 
@@ -1073,10 +1091,17 @@ func (ps *PodSelector) LoadPods(kubeconfigPath, namespace string, app *Applicati
 			// Попробуем простую команду kubectl version для проверки доступности кластера
 			homeDir, _ := os.UserHomeDir()
 			configPath := filepath.Join(homeDir, ".kube", kubeconfigPath)
-			cmd := exec.Command("kubectl", "--kubeconfig", configPath, "version", "--short")
+			
+			ctx, cancel := context.WithTimeout(context.Background(), kubectlTimeout)
+			defer cancel()
+			
+			cmd := exec.CommandContext(ctx, "kubectl", "--kubeconfig", configPath, "version", "--short")
 			setSysProcAttr(cmd)
 			if err := cmd.Run(); err != nil {
 				// Если kubectl version не работает, значит проблема с сетью/кластером
+				if ctx.Err() == context.DeadlineExceeded {
+					log.Print("Таймаут при проверке kubectl version для подов (15 сек)")
+				}
 				app.hasNetworkError = true
 				app.lastFailedAction = "loadPods"
 				ps.loading = false
@@ -1120,7 +1145,11 @@ func (ps *PodSelector) getPodsFromKubectl(kubeconfigPath, namespace string) []st
 
 	configPath := filepath.Join(homeDir, ".kube", kubeconfigPath)
 
-	cmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "--kubeconfig", configPath, "-o", "jsonpath={.items[*].metadata.name}")
+	// Создаем контекст с таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), kubectlTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "pods", "-n", namespace, "--kubeconfig", configPath, "-o", "jsonpath={.items[*].metadata.name}")
 	
 	// Устанавливаем атрибуты процесса для скрытия окна терминала (Windows)
 	setSysProcAttr(cmd)
@@ -1131,7 +1160,9 @@ func (ps *PodSelector) getPodsFromKubectl(kubeconfigPath, namespace string) []st
 
 	output, err := cmd.Output()
 	if err != nil {
-		if stderr.Len() > 0 {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("Таймаут при получении подов (15 сек) для namespace %s", namespace)
+		} else if stderr.Len() > 0 {
 			log.Printf("Error getting pods: %v | Details: %s", err, stderr.String())
 		} else {
 			log.Printf("Error getting pods: %v", err)
@@ -1810,10 +1841,16 @@ func downloadFile(url, filepath string) error {
 
 // Функция для проверки kubectl
 func checkKubectl() error {
-	cmd := exec.Command("kubectl", "version", "--client=true")
+	ctx, cancel := context.WithTimeout(context.Background(), kubectlTimeout)
+	defer cancel()
+	
+	cmd := exec.CommandContext(ctx, "kubectl", "version", "--client=true")
 	setSysProcAttr(cmd)
 	
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("kubectl проверка таймаут (15 сек)")
+		}
 		return fmt.Errorf("kubectl not found or not working: %v", err)
 	}
 	return nil
