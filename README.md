@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/ZERDICORP/k8s-jprof/blob/master/media/icon.png?raw=true" alt="screenshot" width="250" height="250">
+  <img src="https://github.com/ZERDICORP/k8s-jprof/blob/master/media/icon_1.png?raw=true" alt="screenshot" width="250" height="250">
 </p>
 
 <h1 align="center">k8s-jprof</h1>
