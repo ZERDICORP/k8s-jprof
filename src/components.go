@@ -1,12 +1,9 @@
 package main
 
 import (
-	"image/color"
-
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -24,59 +21,31 @@ func NewTitleComponent(logoImage paint.ImageOp) *TitleComponent {
 }
 
 func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return widget.Border{
-		Color: color.NRGBA{B: 255, A: 255}, // зелёная рамка вокруг всего блока
-		Width: unit.Dp(1),
-	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-
-		return layout.Flex{
-			Axis:      layout.Horizontal,
-			Alignment: layout.Middle, // выравниваем всё по центру общей высоты
-		}.Layout(gtx,
-
-			// --- ЛОГО ---
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color: color.NRGBA{R: 255, A: 255}, // красная рамка
-					Width: unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					if tc.logoImage.Size().X > 0 {
-						tc.logoImage.Add(gtx.Ops)
-						paint.PaintOp{}.Add(gtx.Ops)
-						return layout.Dimensions{Size: tc.logoImage.Size()}
-					}
-					return layout.Dimensions{}
-				})
-			}),
-
-			// --- ОТСТУП ---
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color: color.NRGBA{R: 255, G: 255, A: 255}, // жёлтая рамка
-					Width: unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
-				})
-			}),
-
-			// --- ТЕКСТ ---
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color: color.NRGBA{B: 255, A: 255}, // синяя рамка вокруг текста
-					Width: unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					// Центрируем текст в пределах общей высоты (Alignment: Middle)
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
-						label.Font.Weight = font.ExtraBold
-						label.Color = th.Palette.Fg
-						label.Alignment = text.Alignment(text.Middle)
-						return label.Layout(gtx)
-					})
-				})
-			}),
-		)
-	})
+	return layout.Flex{
+		Axis:      layout.Horizontal,
+		Alignment: layout.Middle,
+	}.Layout(gtx,
+		// Логотип
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if tc.logoImage.Size().X > 0 {
+				tc.logoImage.Add(gtx.Ops)
+				paint.PaintOp{}.Add(gtx.Ops)
+				return layout.Dimensions{Size: tc.logoImage.Size()}
+			}
+			return layout.Dimensions{}
+		}),
+		// Отступ между логотипом и текстом
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
+		}),
+		// Текст заголовка
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
+			label.Font.Weight = font.ExtraBold
+			label.Color = th.Palette.Fg
+			return label.Layout(gtx)
+		}),
+	)
 }
 
 // CenteredTitleComponent отрисовывает заголовок по центру (для режима инициализации)
@@ -151,33 +120,18 @@ func NewHeaderComponent(logoImage paint.ImageOp, versionBadge *widget.Clickable,
 // Layout отрисовывает полный заголовок с версией справа
 func (hc *HeaderComponent) Layout(gtx layout.Context, th *material.Theme, onClose func()) layout.Dimensions {
 	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(16), Left: unit.Dp(20), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return widget.Border{
-			Color: color.NRGBA{G: 255, A: 0}, // зелёная рамка
-			Width: unit.Dp(1),
-		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-				// Логотип и название слева
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return widget.Border{
-						Color: color.NRGBA{G: 255, A: 0}, // зелёная рамка
-						Width: unit.Dp(1),
-					}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return hc.titleComponent.Layout(gtx, th)
-					})
-				}),
-				// Версия справа
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return widget.Border{
-							Color: color.NRGBA{G: 255, A: 0}, // зелёная рамка
-							Width: unit.Dp(1),
-						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return hc.versionBadgeComponent.Layout(gtx, th)
-						})
-					})
-				}),
-			)
-		})
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			// Логотип и название слева
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return hc.titleComponent.Layout(gtx, th)
+			}),
+			// Версия справа
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return hc.versionBadgeComponent.Layout(gtx, th)
+				})
+			}),
+		)
 	})
 }
 
