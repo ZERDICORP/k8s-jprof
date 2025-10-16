@@ -6,6 +6,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -69,6 +70,7 @@ func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.
 						label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
 						label.Font.Weight = font.ExtraBold
 						label.Color = th.Palette.Fg
+						label.Alignment = text.Alignment(text.Middle)
 						return label.Layout(gtx)
 					})
 				})
