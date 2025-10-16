@@ -52,7 +52,6 @@ type KubeconfigSelector struct {
 	clickables      []widget.Clickable
 	searchEditor    widget.Editor
 	searchText      string
-	loading         bool
 }
 
 type FormatSelector struct {
@@ -65,7 +64,6 @@ type FormatSelector struct {
 	clickables      []widget.Clickable
 	searchEditor    widget.Editor
 	searchText      string
-	loading         bool
 }
 
 func NewKubeconfigSelector() *KubeconfigSelector {
@@ -2686,7 +2684,7 @@ func (a *Application) startRecording() {
 func main() {
 	go func() {
 		w := new(app.Window)
-		w.Option(app.Title("k8s-jprof.beta"))
+		w.Option(app.Title("k8s-jprof 1.0.beta"))
 		w.Option(app.NavigationColor(color.NRGBA {R: 46, G: 108, B: 230, A: 255}))
 		w.Option(app.StatusColor(color.NRGBA {R: 46, G: 108, B: 230, A: 255}))
 		w.Option(app.Size(unit.Dp(800), unit.Dp(790)))

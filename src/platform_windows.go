@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 
 	"gioui.org/font"
@@ -20,5 +21,7 @@ var TitleFont = font.Font{
 
 // getLogoPath возвращает путь к логотипу для Windows
 func getLogoPath() string {
-	return filepath.Join("media", "logo_50.png")
+	exePath, _ := os.Executable() // путь до текущего бинарника
+    exeDir := filepath.Dir(exePath)
+    return filepath.Join(exeDir, "logo_50.png")
 }

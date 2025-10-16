@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
@@ -39,10 +40,21 @@ func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.
 		}),
 		// Текст заголовка
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			label := material.Label(th, TitleFontSize, "k8s-jprof.beta")
+			label := material.Label(th, TitleFontSize, "k8s-jprof")
 			label.Font = TitleFont
 			label.Color = th.Palette.Fg
 			return label.Layout(gtx)
+		}),
+		// Отступ перед версией
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Spacer{Width: unit.Dp(8)}.Layout(gtx)
+		}),
+		// Версия
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			versionLabel := material.Label(th, unit.Sp(11), "1.0.beta")
+			versionLabel.Font.Weight = font.Normal
+			versionLabel.Color = th.Palette.Fg
+			return versionLabel.Layout(gtx)
 		}),
 	)
 }
