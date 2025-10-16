@@ -9,7 +9,10 @@ import (
 )
 
 // TitleFontSize размер шрифта заголовка для macOS и других платформ
-const TitleFontSize = unit.Sp(20)
+const TitleFontSize = unit.Sp(26)
+
+// TitleVerticalOffset вертикальная корректировка для выравнивания с логотипом на macOS
+const TitleVerticalOffset = unit.Dp(0)
 
 // getLogoPath возвращает путь к логотипу для macOS и других платформ
 func getLogoPath() string {
