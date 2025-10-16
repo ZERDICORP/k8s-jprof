@@ -23,10 +23,10 @@ func NewTitleComponent(logoImage paint.ImageOp) *TitleComponent {
 // Layout отрисовывает логотип и заголовок слева
 func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	// Обертываем все в вертикальный контейнер с центрированием
-	return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		// Логотип
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-				// Логотип
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					if tc.logoImage.Size().X > 0 {
 						tc.logoImage.Add(gtx.Ops)
@@ -35,11 +35,19 @@ func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.
 					}
 					return layout.Dimensions{}
 				}),
-				// Отступ между логотипом и текстом
+			)
+		}),
+		// Отступ между логотипом и текстом
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
 				}),
-				// Текст заголовка
+			)
+		}),
+		// Текст заголовка
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
 					label.Font.Weight = font.ExtraBold
@@ -111,7 +119,6 @@ func (vbc *VersionBadgeComponent) Layout(gtx layout.Context, th *material.Theme)
 type HeaderComponent struct {
 	titleComponent       *TitleComponent
 	versionBadgeComponent *VersionBadgeComponent
-	closeButton          widget.Clickable
 }
 
 func NewHeaderComponent(logoImage paint.ImageOp, versionBadge *widget.Clickable, version string) *HeaderComponent {
