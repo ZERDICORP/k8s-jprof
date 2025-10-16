@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+var dialogProcess *exec.Cmd
+
 func openModalFolderDialog() (string, bool) {
 	var cmd *exec.Cmd
 	
@@ -20,7 +22,14 @@ func openModalFolderDialog() (string, bool) {
 		cmd = exec.Command("zenity", "--file-selection", "--directory", "--title=Select folder to save profiling results")
 	}
 	
+	// Сохраняем ссылку на процесс для возможности его закрытия
+	dialogProcess = cmd
+	
 	output, err := cmd.Output()
+	
+	// Очищаем ссылку после завершения
+	dialogProcess = nil
+	
 	if err != nil {
 		return "", false
 	}
@@ -38,4 +47,11 @@ func openModalFolderDialog() (string, bool) {
 	}
 	
 	return folder, folder != ""
+}
+
+func closeAnyOpenDialogs() {
+	if dialogProcess != nil && dialogProcess.Process != nil {
+		dialogProcess.Process.Kill()
+		dialogProcess = nil
+	}
 }

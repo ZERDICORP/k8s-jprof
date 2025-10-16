@@ -1,34 +1,39 @@
-.PHONY: bld_win64 bld_macos help prebuild_win prebuild_macos package_win package_macos
+.PHONY: win mac help prebuild_win prebuild_macos package_win package_macos
 
-MEDIA_FILE=./media/logo_50.png
+MEDIA_FILE=media\\logo_50.png
 
-# Prebuild steps
+# ===========================
+# WINDOWS BUILD (run on Windows)
+# ===========================
 prebuild_win:
-	@mkdir -p ./bin/win64/media
-	@cp $(MEDIA_FILE) ./bin/win64/media/
+	if not exist "bin\\win64\\media" mkdir "bin\\win64\\media"
+	copy /Y "$(MEDIA_FILE)" "bin\\win64\\media\\"
 
-prebuild_macos:
-	@mkdir -p ./bin/darwin/media
-	@cp $(MEDIA_FILE) ./bin/darwin/media/
-
-# Build targets
-bld_win64: prebuild_win
-	GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui" -o ./bin/win64/k8s-prf.exe ./src/.
+win: prebuild_win
+	go build -ldflags="-H windowsgui" -o ./bin/win64/k8s-prf.exe ./src/.
 	$(MAKE) package_win
 
-bld_macos: prebuild_macos
-	GOOS=darwin GOARCH=arm64 go build -o ./bin/darwin/k8s-prf ./src/.
-	$(MAKE) package_macos
-
-# Packaging
 package_win:
-	@cd ./bin/win64 && zip -r k8s-prf-win64.zip ./*
+	powershell -Command "Compress-Archive -Path './bin/win64/*' -DestinationPath './bin/win64/k8s-prf-win64.zip' -Force"
+
+# ===========================
+# MACOS BUILD (run on macOS)
+# ===========================
+prebuild_macos:
+	@mkdir -p ./bin/darwin/media
+	@cp ./media/logo_50.png ./bin/darwin/media/
+
+mac: prebuild_macos
+	go build -o ./bin/darwin/k8s-prf ./src/.
+	$(MAKE) package_macos
 
 package_macos:
 	@cd ./bin/darwin && zip -r k8s-prf-darwin.zip ./*
 
-# Help
+# ===========================
+# HELP
+# ===========================
 help:
 	@echo "Available commands:"
-	@echo "  bld_win64 - Build Windows GUI version and zip it"
-	@echo "  bld_macos - Build macOS version and zip it"
+	@echo "  win - Build Windows GUI version and zip it (run on Windows)"
+	@echo "  mac - Build macOS version and zip it (run on macOS)"

@@ -9,6 +9,8 @@ import (
 	"syscall"
 )
 
+var dialogProcess *exec.Cmd
+
 func openModalFolderDialog() (string, bool) {
 	// Используем PowerShell с нативным диалогом Windows (полностью скрытый процесс)
 	script := `
@@ -30,7 +32,13 @@ func openModalFolderDialog() (string, bool) {
 		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
 	}
 	
+	// Сохраняем ссылку на процесс для возможности его закрытия
+	dialogProcess = cmd
+	
 	output, err := cmd.Output()
+	
+	// Очищаем ссылку после завершения
+	dialogProcess = nil
 	
 	if err != nil {
 		return "", false
@@ -38,4 +46,11 @@ func openModalFolderDialog() (string, bool) {
 	
 	folderPath := strings.TrimSpace(string(output))
 	return folderPath, folderPath != ""
+}
+
+func closeAnyOpenDialogs() {
+	if dialogProcess != nil && dialogProcess.Process != nil {
+		dialogProcess.Process.Kill()
+		dialogProcess = nil
+	}
 }

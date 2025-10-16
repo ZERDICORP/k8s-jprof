@@ -427,6 +427,25 @@ func (ns *NamespaceSelector) LoadNamespaces(kubeconfigPath string, app *Applicat
 	go func() {
 		namespaces := ns.getNamespacesFromKubeconfig(kubeconfigPath)
 
+		// Проверяем на ошибки сети (если не удалось получить namespaces)
+		if len(namespaces) == 0 {
+			// Проверяем, что это действительно ошибка сети, а не пустой результат
+			// Попробуем простую команду kubectl version для проверки доступности кластера
+			cmd := exec.Command("kubectl", "--kubeconfig", filepath.Join(getKubeDir(), kubeconfigPath), "version", "--short")
+			setSysProcAttr(cmd)
+			if err := cmd.Run(); err != nil {
+				// Если kubectl version не работает, значит проблема с сетью/кластером
+				app.hasNetworkError = true
+				app.lastFailedAction = "loadNamespaces"
+				ns.loading = false
+				app.isLoading = false
+				if app.invalidate != nil {
+					app.invalidate()
+				}
+				return
+			}
+		}
+
 		// Обновляем в UI потоке
 		ns.namespaces = namespaces
 		ns.filteredNamespaces = make([]string, len(namespaces))
@@ -1048,6 +1067,27 @@ func (ps *PodSelector) LoadPods(kubeconfigPath, namespace string, app *Applicati
 	go func() {
 		pods := ps.getPodsFromKubectl(kubeconfigPath, namespace)
 
+		// Проверяем на ошибки сети (если не удалось получить pods)
+		if len(pods) == 0 {
+			// Проверяем, что это действительно ошибка сети, а не пустой namespace
+			// Попробуем простую команду kubectl version для проверки доступности кластера
+			homeDir, _ := os.UserHomeDir()
+			configPath := filepath.Join(homeDir, ".kube", kubeconfigPath)
+			cmd := exec.Command("kubectl", "--kubeconfig", configPath, "version", "--short")
+			setSysProcAttr(cmd)
+			if err := cmd.Run(); err != nil {
+				// Если kubectl version не работает, значит проблема с сетью/кластером
+				app.hasNetworkError = true
+				app.lastFailedAction = "loadPods"
+				ps.loading = false
+				app.isLoading = false
+				if app.invalidate != nil {
+					app.invalidate()
+				}
+				return
+			}
+		}
+
 		// Обновляем в UI потоке
 		ps.pods = pods
 		ps.filteredPods = make([]string, len(pods))
@@ -1440,12 +1480,19 @@ type Application struct {
 	isInitializing     bool   // Идет ли первоначальная инициализация
 	initializationMessage string // Сообщение инициализации
 	hasError           bool   // Есть ли критическая ошибка
+	isClearing         bool   // Идет ли очистка сохраненных данных
 	
 	// Состояние выбора папки
 	isChoosingFolder   bool   // Открыто ли окно выбора папки
 	errorMessage       string // Сообщение об ошибке
 	statusClickable    widget.Clickable // Кликабельность статуса
 	outputPath         string // Путь к папке с результатами
+	
+	// Состояние сетевых ошибок
+	hasNetworkError    bool   // Есть ли ошибка сети
+	retryButton        widget.Clickable // Кнопка Retry
+	resetButton        widget.Clickable // Кнопка Reset
+	lastFailedAction   string // Последнее неудачное действие для повтора
 	
 	// Логотип приложения
 	logoImage          paint.ImageOp // Логотип
@@ -1553,6 +1600,149 @@ func (a *Application) drawFolderChoosingOverlay(gtx layout.Context, th *material
 	})
 }
 
+func (a *Application) drawNetworkErrorOverlay(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	if !a.hasNetworkError {
+		return layout.Dimensions{}
+	}
+
+	// Создаем кликабельную область на весь экран для блокировки
+	clickable := &widget.Clickable{}
+	return material.Clickable(gtx, clickable, func(gtx layout.Context) layout.Dimensions {
+		// Полностью белый фон
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		paint.Fill(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+								// Сообщение об ошибке
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									label := material.Label(th, unit.Sp(20), "Network error. Check connection or enable VPN.")
+									label.Color = color.NRGBA{R: 200, G: 50, B: 50, A: 255} // Красный цвет
+									label.Alignment = text.Middle
+									return label.Layout(gtx)
+								}),
+								// Отступ между надписью и кнопками
+								layout.Rigid(layout.Spacer{Height: unit.Dp(20)}.Layout),
+								// Кнопки Retry и Reset
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+										// Кнопка Retry
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											// Обработка клика на кнопку Retry
+											for a.retryButton.Clicked(gtx) {
+												a.retryLastAction()
+											}
+
+											// Pointer cursor при наведении
+											if a.retryButton.Hovered() {
+												pointer.CursorPointer.Add(gtx.Ops)
+											}
+
+											btn := material.Button(th, &a.retryButton, "Retry")
+											btn.Background = color.NRGBA{R: 76, G: 175, B: 80, A: 255} // Зеленая кнопка
+											btn.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+											return btn.Layout(gtx)
+										}),
+										// Отступ между кнопками
+										layout.Rigid(layout.Spacer{Width: unit.Dp(20)}.Layout),
+										// Кнопка Reset
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											// Обработка клика на кнопку Reset
+											for a.resetButton.Clicked(gtx) {
+												a.resetAll()
+											}
+
+											// Pointer cursor при наведении
+											if a.resetButton.Hovered() {
+												pointer.CursorPointer.Add(gtx.Ops)
+											}
+
+											btn := material.Button(th, &a.resetButton, "Reset")
+											btn.Background = color.NRGBA{R: 244, G: 67, B: 54, A: 255} // Красная кнопка
+											btn.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+											return btn.Layout(gtx)
+										}),
+									)
+								}),
+							)
+						})
+					}),
+				)
+			}),
+		)
+	})
+}
+
+func (a *Application) retryLastAction() {
+	a.hasNetworkError = false
+	
+	switch a.lastFailedAction {
+	case "loadNamespaces":
+		selectedConfig := a.kubeconfigSelector.GetSelectedConfig()
+		if selectedConfig != "" {
+			a.namespaceSelector.LoadNamespaces(selectedConfig, a)
+		}
+	case "loadPods":
+		selectedConfig := a.kubeconfigSelector.GetSelectedConfig()
+		selectedNamespace := a.namespaceSelector.GetSelectedNamespace()
+		if selectedConfig != "" && selectedNamespace != "" {
+			a.podSelector.LoadPods(selectedConfig, selectedNamespace, a)
+		}
+	}
+	
+	if a.invalidate != nil {
+		a.invalidate()
+	}
+}
+
+func (a *Application) resetAll() {
+	// Скрываем сетевую ошибку
+	a.hasNetworkError = false
+	
+	// Очищаем все сохраненные конфигурации
+	if err := clearAllSavedData(); err != nil {
+		log.Printf("Warning: Failed to clear saved data: %v", err)
+	}
+	
+	// Сбрасываем все селекторы в начальное состояние
+	if a.kubeconfigSelector != nil {
+		a.kubeconfigSelector.selectedConfig = ""
+		a.kubeconfigSelector.expanded = false
+		a.kubeconfigSelector.scanKubeconfigs() // Перезагружаем список конфигов
+	}
+	
+	if a.namespaceSelector != nil {
+		a.namespaceSelector.Reset()
+	}
+	
+	if a.podSelector != nil {
+		a.podSelector.Reset()
+	}
+	
+	// Очищаем статус записи и результаты
+	a.recordingResult = ""
+	a.showBrowserButton = false
+	a.htmlOutputPath = ""
+	a.hasCompletedRecording = false
+	a.outputPath = ""
+	
+	// Очищаем поля ввода
+	a.asprofArgs = "-e cpu -d 30" // Возвращаем дефолтные значения
+	a.asprofArgsEditor.SetText(a.asprofArgs)
+	
+	// Сбрасываем папку на дефолтную
+	homeDir, _ := os.UserHomeDir()
+	a.selectedFolder = filepath.Join(homeDir, "Desktop")
+	
+	if a.invalidate != nil {
+		a.invalidate()
+	}
+}
+
 // Функция для проверки и загрузки необходимых файлов при первом запуске
 func checkAndDownloadDependencies() error {
 	// Проверяем существование папки ./data
@@ -1646,10 +1836,6 @@ func checkKubeDirectory() error {
 
 func NewApplication() *Application {
 	app := &Application{
-		kubeconfigSelector: NewKubeconfigSelector(),
-		namespaceSelector:  NewNamespaceSelector(),
-		podSelector:        NewPodSelector(),
-		formatSelector:     NewFormatSelector(),
 		asprofArgsEditor: widget.Editor{
 			SingleLine: true,
 		},
@@ -1662,19 +1848,15 @@ func NewApplication() *Application {
 
 	// Проверяем существование data директории
 	if _, err := os.Stat("./data"); os.IsNotExist(err) {
-		// Если data нет, запускаем инициализацию
-		app.isInitializing = true
-		app.initializationMessage = "Loading async-profiler '4.1'..."
+		// Если data нет, сначала очищаем данные, затем запускаем инициализацию
+		app.isClearing = true
+		app.initializationMessage = "Clearing old data..."
 		
-		// Очищаем все сохраненные данные
-		if err := clearAllSavedData(); err != nil {
-			log.Printf("Warning: Failed to clear saved data: %v", err)
-		}
-		
-		// Запускаем загрузку зависимостей в фоне
-		go app.performInitialization()
+		// Запускаем очистку в фоне
+		go app.performClearing()
 	} else {
-		// Если data есть, загружаем как обычно
+		// Если data есть, инициализируем селекторы и загружаем как обычно
+		app.initializeSelectors()
 		app.loadAsprofArgs()     // Load saved arguments
 		app.loadSelectedFolder() // Load saved folder
 		app.profilerPath = app.findProfilerPath() // Find profiler automatically
@@ -1694,6 +1876,32 @@ func NewApplication() *Application {
 	}
 
 	return app
+}
+
+func (a *Application) initializeSelectors() {
+	a.kubeconfigSelector = NewKubeconfigSelector()
+	a.namespaceSelector = NewNamespaceSelector()
+	a.podSelector = NewPodSelector()
+	a.formatSelector = NewFormatSelector()
+}
+
+func (a *Application) performClearing() {
+	// Очищаем все сохраненные данные
+	if err := clearAllSavedData(); err != nil {
+		log.Printf("Warning: Failed to clear saved data: %v", err)
+	}
+	
+	// После очистки переходим к инициализации
+	a.isClearing = false
+	a.isInitializing = true
+	a.initializationMessage = "Loading async-profiler '4.1'..."
+	
+	if a.invalidate != nil {
+		a.invalidate()
+	}
+	
+	// Запускаем обычную инициализацию
+	a.performInitialization()
 }
 
 func (a *Application) performInitialization() {
@@ -1723,7 +1931,8 @@ func (a *Application) performInitialization() {
 		log.Printf("Warning: Failed to check dependencies: %v", err)
 	}
 	
-	// После загрузки инициализируем все как обычно
+	// После загрузки инициализируем селекторы и загружаем данные
+	a.initializeSelectors()
 	a.loadAsprofArgs()
 	a.loadSelectedFolder()
 	a.profilerPath = a.findProfilerPath()
@@ -2472,7 +2681,10 @@ func run(w *app.Window) error {
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
-			return e.Err
+			// Закрываем любые открытые диалоги
+			closeAnyOpenDialogs()
+			// Принудительное завершение программы при закрытии окна
+			os.Exit(0)
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 
@@ -2504,8 +2716,8 @@ func run(w *app.Window) error {
 						)
 					}
 
-					// Если идет инициализация - показываем только заголовок и лоадер
-					if appInstance.isInitializing {
+					// Если идет очистка или инициализация - показываем только заголовок и лоадер
+					if appInstance.isClearing || appInstance.isInitializing {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							// Заголовок вверху
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -2548,12 +2760,15 @@ func run(w *app.Window) error {
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 							return layout.Inset{Top: unit.Dp(20), Bottom: unit.Dp(20), Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								// Проверяем изменение kubeconfig для загрузки namespaces
-								selectedConfig := appInstance.kubeconfigSelector.GetSelectedConfig()
+								var selectedConfig string
+								if appInstance.kubeconfigSelector != nil {
+									selectedConfig = appInstance.kubeconfigSelector.GetSelectedConfig()
+								}
 
 								// Если kubeconfig изменился, сбрасываем namespaces
 								if selectedConfig != appInstance.lastSelectedConfig {
 									appInstance.lastSelectedConfig = selectedConfig
-									if selectedConfig == "" {
+									if selectedConfig == "" && appInstance.namespaceSelector != nil {
 										appInstance.namespaceSelector.Reset()
 									}
 								}
@@ -2561,6 +2776,11 @@ func run(w *app.Window) error {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									// Kubeconfig selector
 									func() layout.FlexChild {
+										if appInstance.kubeconfigSelector == nil {
+											return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return layout.Dimensions{}
+											})
+										}
 										if appInstance.kubeconfigSelector.expanded {
 											// Если kubeconfig расширен - он занимает максимум места
 											return layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -2576,7 +2796,7 @@ func run(w *app.Window) error {
 									layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 									// Namespace selector
 									func() layout.FlexChild {
-										if selectedConfig == "" {
+										if selectedConfig == "" || appInstance.namespaceSelector == nil {
 											return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 												return layout.Dimensions{}
 											})
@@ -2596,8 +2816,11 @@ func run(w *app.Window) error {
 									layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 									// Pod selector
 									func() layout.FlexChild {
-										selectedNamespace := appInstance.namespaceSelector.GetSelectedNamespace()
-										if selectedConfig == "" || selectedNamespace == "" {
+										var selectedNamespace string
+										if appInstance.namespaceSelector != nil {
+											selectedNamespace = appInstance.namespaceSelector.GetSelectedNamespace()
+										}
+										if selectedConfig == "" || selectedNamespace == "" || appInstance.podSelector == nil {
 											return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 												return layout.Dimensions{}
 											})
@@ -2617,8 +2840,13 @@ func run(w *app.Window) error {
 									layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 									// Поле ввода аргументов async-profiler
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										selectedNamespace := appInstance.namespaceSelector.GetSelectedNamespace()
-										selectedPod := appInstance.podSelector.GetSelectedPod()
+										var selectedNamespace, selectedPod string
+										if appInstance.namespaceSelector != nil {
+											selectedNamespace = appInstance.namespaceSelector.GetSelectedNamespace()
+										}
+										if appInstance.podSelector != nil {
+											selectedPod = appInstance.podSelector.GetSelectedPod()
+										}
 										if selectedConfig == "" || selectedNamespace == "" || selectedPod == "" {
 											return layout.Dimensions{}
 										}
@@ -2637,9 +2865,14 @@ func run(w *app.Window) error {
 									layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 									// Селектор формата JFR
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										selectedNamespace := appInstance.namespaceSelector.GetSelectedNamespace()
-										selectedPod := appInstance.podSelector.GetSelectedPod()
-										if selectedConfig == "" || selectedNamespace == "" || selectedPod == "" {
+										var selectedNamespace, selectedPod string
+										if appInstance.namespaceSelector != nil {
+											selectedNamespace = appInstance.namespaceSelector.GetSelectedNamespace()
+										}
+										if appInstance.podSelector != nil {
+											selectedPod = appInstance.podSelector.GetSelectedPod()
+										}
+										if selectedConfig == "" || selectedNamespace == "" || selectedPod == "" || appInstance.formatSelector == nil {
 											return layout.Dimensions{}
 										}
 										return appInstance.formatSelector.Layout(gtx, th, appInstance)
@@ -2649,9 +2882,16 @@ func run(w *app.Window) error {
 						}),
 						// Кнопка записи внизу экрана (зафиксирована)
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							selectedConfig := appInstance.kubeconfigSelector.GetSelectedConfig()
-							selectedNamespace := appInstance.namespaceSelector.GetSelectedNamespace()
-							selectedPod := appInstance.podSelector.GetSelectedPod()
+							var selectedConfig, selectedNamespace, selectedPod string
+							if appInstance.kubeconfigSelector != nil {
+								selectedConfig = appInstance.kubeconfigSelector.GetSelectedConfig()
+							}
+							if appInstance.namespaceSelector != nil {
+								selectedNamespace = appInstance.namespaceSelector.GetSelectedNamespace()
+							}
+							if appInstance.podSelector != nil {
+								selectedPod = appInstance.podSelector.GetSelectedPod()
+							}
 							
 							if selectedConfig == "" || selectedNamespace == "" || selectedPod == "" || appInstance.selectedFolder == "" {
 								return layout.Dimensions{}
@@ -2674,6 +2914,10 @@ func run(w *app.Window) error {
 				// Занавес во время выбора папки
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					return appInstance.drawFolderChoosingOverlay(gtx, th)
+				}),
+				// Overlay для ошибок сети
+				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+					return appInstance.drawNetworkErrorOverlay(gtx, th)
 				}),
 			)
 

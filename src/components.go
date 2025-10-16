@@ -39,10 +39,14 @@ func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.
 		}),
 		// Текст заголовка
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
-			label.Font.Weight = font.ExtraBold
-			label.Color = th.Palette.Fg
-			return label.Layout(gtx)
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
+					label.Font.Weight = font.ExtraBold
+					label.Color = th.Palette.Fg
+					return label.Layout(gtx)
+				}),
+			)
 		}),
 	)
 }
@@ -67,10 +71,14 @@ func (tc *TitleComponent) CenteredLayout(gtx layout.Context, th *material.Theme)
 				}),
 				// Текст заголовка
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					label := material.Label(th, unit.Sp(26), "k8s-pfr.beta")
-					label.Font.Weight = font.ExtraBold
-					label.Color = th.Palette.Fg
-					return label.Layout(gtx)
+					return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
+							label.Font.Weight = font.ExtraBold
+							label.Color = th.Palette.Fg
+							return label.Layout(gtx)
+						}),
+					)
 				}),
 			)
 		}),
