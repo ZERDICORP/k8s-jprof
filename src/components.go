@@ -22,41 +22,9 @@ func NewTitleComponent(logoImage paint.ImageOp) *TitleComponent {
 
 // Layout отрисовывает логотип и заголовок слева
 func (tc *TitleComponent) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-		// Логотип
+	// Обертываем все в вертикальный контейнер с центрированием
+	return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if tc.logoImage.Size().X > 0 {
-				// Отрисовываем логотип как есть (уже 24x24)
-				tc.logoImage.Add(gtx.Ops)
-				paint.PaintOp{}.Add(gtx.Ops)
-				return layout.Dimensions{Size: tc.logoImage.Size()}
-			}
-			return layout.Dimensions{}
-		}),
-		// Отступ между логотипом и текстом
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
-		}),
-		// Текст заголовка
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: TitleVerticalOffset}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
-						label.Font.Weight = font.ExtraBold
-						label.Color = th.Palette.Fg
-						return label.Layout(gtx)
-					}),
-				)
-			})
-		}),
-	)
-}
-
-// CenteredTitleComponent отрисовывает заголовок по центру (для режима инициализации)
-func (tc *TitleComponent) CenteredLayout(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				// Логотип
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -67,22 +35,51 @@ func (tc *TitleComponent) CenteredLayout(gtx layout.Context, th *material.Theme)
 					}
 					return layout.Dimensions{}
 				}),
-				// Отступ
+				// Отступ между логотипом и текстом
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
 				}),
 				// Текст заголовка
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: TitleVerticalOffset}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
-								label.Font.Weight = font.ExtraBold
-								label.Color = th.Palette.Fg
-								return label.Layout(gtx)
-							}),
-						)
-					})
+					label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
+					label.Font.Weight = font.ExtraBold
+					label.Color = th.Palette.Fg
+					return label.Layout(gtx)
+				}),
+			)
+		}),
+	)
+}
+
+// CenteredTitleComponent отрисовывает заголовок по центру (для режима инициализации)
+func (tc *TitleComponent) CenteredLayout(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			// Обертываем все в вертикальный контейнер с центрированием
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+						// Логотип
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							if tc.logoImage.Size().X > 0 {
+								tc.logoImage.Add(gtx.Ops)
+								paint.PaintOp{}.Add(gtx.Ops)
+								return layout.Dimensions{Size: tc.logoImage.Size()}
+							}
+							return layout.Dimensions{}
+						}),
+						// Отступ
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return layout.Spacer{Width: unit.Dp(12)}.Layout(gtx)
+						}),
+						// Текст заголовка
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							label := material.Label(th, TitleFontSize, "k8s-pfr.beta")
+							label.Font.Weight = font.ExtraBold
+							label.Color = th.Palette.Fg
+							return label.Layout(gtx)
+						}),
+					)
 				}),
 			)
 		}),
