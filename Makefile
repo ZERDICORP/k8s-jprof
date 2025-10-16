@@ -10,11 +10,11 @@ prebuild_win:
 	xcopy /E /I /Y "$(MEDIA_DIR)" "bin\\win64\\media\\"
 
 win: prebuild_win
-	go build -ldflags="-H windowsgui" -o ./bin/win64/k8s-prf.exe ./src/.
+	go build -ldflags="-H windowsgui" -o ./bin/win64/k8s-jprof.exe ./src/.
 	$(MAKE) package_win
 
 package_win:
-	powershell -Command "Compress-Archive -Path './bin/win64/*' -DestinationPath './bin/win64/k8s-prf-win64.zip' -Force"
+	powershell -Command "Compress-Archive -Path './bin/win64/*' -DestinationPath './bin/win64/k8s-jprof-win64.zip' -Force"
 
 # ===========================
 # MACOS BUILD (run on macOS)
@@ -24,11 +24,11 @@ prebuild_macos:
 	@cp -R ./media/* ./bin/darwin/media/
 
 mac: prebuild_macos
-	go build -o ./bin/darwin/k8s-prf ./src/.
+	go build -o ./bin/darwin/k8s-jprof ./src/.
 	$(MAKE) package_macos
 
 package_macos:
-	@cd ./bin/darwin && zip -r k8s-prf-darwin.zip ./*
+	@cd ./bin/darwin && zip -r k8s-jprof-darwin.zip ./*
 
 # ===========================
 # HELP

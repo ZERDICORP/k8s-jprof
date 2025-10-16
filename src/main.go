@@ -156,7 +156,7 @@ func (ks *KubeconfigSelector) saveSelection() {
 
 func getConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".k8s-pfr", "kubeconfig.mem")
+	return filepath.Join(homeDir, ".k8s-jprof", "kubeconfig.mem")
 }
 
 func getKubeDir() string {
@@ -558,7 +558,7 @@ func (ns *NamespaceSelector) saveSelection() {
 
 func getNamespaceConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".k8s-pfr", "namespace.mem")
+	return filepath.Join(homeDir, ".k8s-jprof", "namespace.mem")
 }
 
 func (ns *NamespaceSelector) Layout(gtx layout.Context, th *material.Theme, app *Application) layout.Dimensions {
@@ -1426,31 +1426,31 @@ func (ps *PodSelector) IsExpanded() bool {
 
 func getPodConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	configDir := filepath.Join(homeDir, ".k8s-jprof")
 	return filepath.Join(configDir, "pod.mem")
 }
 
 func getAsprofArgsConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	configDir := filepath.Join(homeDir, ".k8s-jprof")
 	return filepath.Join(configDir, "asprof_args.mem")
 }
 
 func getFolderConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	configDir := filepath.Join(homeDir, ".k8s-jprof")
 	return filepath.Join(configDir, "jfr_folder.mem")
 }
 
 func getFormatConfigFilePath() string {
 	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".k8s-pfr")
+	configDir := filepath.Join(homeDir, ".k8s-jprof")
 	return filepath.Join(configDir, "convert_format.mem")
 }
 
 func getConfigDir() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".k8s-pfr")
+	return filepath.Join(homeDir, ".k8s-jprof")
 }
 
 func shortenFileName(filePath string) string {
@@ -2430,7 +2430,7 @@ func (a *Application) startRecording() {
 
 		// Создаем временный файл kubeconfig
 		homeDir, _ := os.UserHomeDir()
-		tmpDir := filepath.Join(homeDir, ".k8s-pfr", "tmp")
+		tmpDir := filepath.Join(homeDir, ".k8s-jprof", "tmp")
 		if err := os.MkdirAll(tmpDir, 0755); err != nil {
 			a.recordingResult = fmt.Sprintf("Error creating temp directory: %v", err)
 			a.isRecording = false
@@ -2686,7 +2686,7 @@ func (a *Application) startRecording() {
 func main() {
 	go func() {
 		w := new(app.Window)
-		w.Option(app.Title("k8s-pfr.beta"))
+		w.Option(app.Title("k8s-jprof.beta"))
 		w.Option(app.NavigationColor(color.NRGBA {R: 46, G: 108, B: 230, A: 255}))
 		w.Option(app.StatusColor(color.NRGBA {R: 46, G: 108, B: 230, A: 255}))
 		w.Option(app.Size(unit.Dp(800), unit.Dp(790)))
